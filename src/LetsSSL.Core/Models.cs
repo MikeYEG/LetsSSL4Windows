@@ -104,7 +104,7 @@ public class RenewalStatus
 /// <summary>Global application settings, persisted to appsettings.json in ProgramData.</summary>
 public class AppSettings
 {
-    public AcmeEnvironment Environment { get; set; } = AcmeEnvironment.Staging;
+    public AcmeEnvironment Environment { get; set; } = AcmeEnvironment.Production;
     public string ContactEmail { get; set; } = string.Empty;
     /// <summary>Visual theme of the desktop app (dark by default).</summary>
     public AppTheme Theme { get; set; } = AppTheme.Dark;

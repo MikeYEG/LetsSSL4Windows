@@ -10,6 +10,11 @@ public class IisSiteInfo
     public string? PhysicalPath { get; set; }
     public List<string> Bindings { get; set; } = new();
     public bool HasHttpsBinding { get; set; }
+
+    // Used as the fallback display text in ComboBoxes (the selection box shows
+    // ToString() when no item template is applied), so the site name is shown
+    // instead of the type name.
+    public override string ToString() => Name;
 }
 
 /// <summary>

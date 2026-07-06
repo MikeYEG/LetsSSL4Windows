@@ -11,10 +11,14 @@ namespace LetsSSL.App.Views;
 
 public partial class ManualDnsWindow : Window
 {
+    private const int RecheckSeconds = 15;
+
     private readonly List<ManualDnsRecordViewModel> _records;
     private readonly DnsTxtVerifier _verifier = new();
-    private readonly DispatcherTimer _recheckTimer;
+    private readonly DispatcherTimer _countdownTimer;
+    private int _secondsLeft = RecheckSeconds;
     private bool _checking;
+    private bool _allReady;
 
     public ManualDnsWindow(IReadOnlyList<DnsTxtRecord> records)
     {
@@ -28,13 +32,34 @@ public partial class ManualDnsWindow : Window
             : $"Create the following {records.Count} TXT records at your DNS provider (a wildcard plus its base domain " +
               "need two records with the same name). They're checked automatically — click Continue once they show as live.";
 
-        _recheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
-        _recheckTimer.Tick += async (_, _) => await CheckAllAsync(quiet: true);
+        // A 1-second tick drives a visible countdown; a full DNS re-check runs each
+        // time it reaches zero (and once immediately on open).
+        _countdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _countdownTimer.Tick += OnCountdownTick;
 
-        Closed += (_, _) => { _recheckTimer.Stop(); _verifier.Dispose(); };
+        Closed += (_, _) => { _countdownTimer.Stop(); _verifier.Dispose(); };
 
-        _recheckTimer.Start();
+        UpdateCountdownHint();
+        _countdownTimer.Start();
         _ = CheckAllAsync(); // initial check (continuations run on the dialog's dispatcher while modal)
+    }
+
+    private async void OnCountdownTick(object? sender, EventArgs e)
+    {
+        if (_checking) return; // hold the countdown while a check is in flight
+        _secondsLeft--;
+        if (_secondsLeft <= 0)
+        {
+            await CheckAllAsync(quiet: true);
+            _secondsLeft = RecheckSeconds;
+        }
+        if (!_allReady) UpdateCountdownHint();
+    }
+
+    private void UpdateCountdownHint()
+    {
+        ReadyHint.Text = $"Re-checking DNS in {_secondsLeft}s…";
+        ReadyHint.Foreground = Brushes.Gray;
     }
 
     private async Task CheckAllAsync(bool quiet = false)
@@ -46,7 +71,8 @@ public partial class ManualDnsWindow : Window
             if (!quiet)
             {
                 foreach (var vm in _records) { vm.CheckText = "Checking DNS…"; vm.CheckBrush = Brushes.Gray; }
-                ReadyHint.Text = string.Empty;
+                ReadyHint.Text = "Checking DNS…";
+                ReadyHint.Foreground = Brushes.Gray;
             }
 
             foreach (var vm in _records)
@@ -66,12 +92,18 @@ public partial class ManualDnsWindow : Window
                 }
             }
 
-            var allReady = _records.Count > 0 && _records.All(r => r.InDns);
-            ReadyHint.Text = allReady
-                ? "✓ All records are live in DNS — you can continue."
-                : "Auto-rechecking DNS every 15s…";
-            ReadyHint.Foreground = allReady ? Brushes.SeaGreen : Brushes.Gray;
-            if (allReady) _recheckTimer.Stop();
+            _allReady = _records.Count > 0 && _records.All(r => r.InDns);
+            if (_allReady)
+            {
+                ReadyHint.Text = "✓ All records are live in DNS — you can continue.";
+                ReadyHint.Foreground = Brushes.SeaGreen;
+                _countdownTimer.Stop();
+            }
+            else
+            {
+                _secondsLeft = RecheckSeconds;
+                UpdateCountdownHint();
+            }
         }
         finally
         {
@@ -81,7 +113,8 @@ public partial class ManualDnsWindow : Window
 
     private void OnRecheck(object sender, RoutedEventArgs e)
     {
-        _recheckTimer.Start(); // resume periodic checks if they were stopped
+        _secondsLeft = RecheckSeconds;
+        if (!_allReady) _countdownTimer.Start(); // resume the countdown if it had stopped
         _ = CheckAllAsync();
     }
 

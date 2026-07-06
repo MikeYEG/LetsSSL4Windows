@@ -103,7 +103,14 @@ public class AcmeService
 
             var password = Guid.NewGuid().ToString("N");
             var friendlyName = $"LetsSSL4Windows {domains[0]} {DateTime.UtcNow:yyyy-MM-dd}";
-            var pfxBytes = cert.ToPfx(privateKey).Build(friendlyName, password);
+            var pfxBuilder = cert.ToPfx(privateKey);
+            // Don't require a complete chain up to a trusted root. Let's Encrypt's
+            // staging chain (and some cross-signed production chains) reference an
+            // issuer that isn't in the downloaded bundle; with FullChain=true,
+            // Build() throws "Can not find issuer …". Setting it false still bundles
+            // the leaf + available intermediates, which is what IIS needs.
+            pfxBuilder.FullChain = false;
+            var pfxBytes = pfxBuilder.Build(friendlyName, password);
 
             Report("Certificate issued successfully.");
             return new CertificateOrderResult { PfxBytes = pfxBytes, PfxPassword = password };

@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using LetsSSL.Core.Storage;
@@ -11,6 +12,9 @@ public partial class App : Application
         base.OnStartup(e);
         // Surface unhandled UI-thread exceptions instead of silently crashing.
         DispatcherUnhandledException += OnUnhandledException;
+        // Swallow faults from fire-and-forget background tasks (e.g. an update or
+        // DNS check) so an unobserved exception can never tear the process down.
+        TaskScheduler.UnobservedTaskException += (_, args) => args.SetObserved();
 
         // Apply the saved theme (dark by default) before any window shows.
         var settings = new SettingsRepository(new AppPaths()).Load();
