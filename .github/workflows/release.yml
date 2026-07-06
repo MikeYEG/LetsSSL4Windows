@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Determine version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ github.event.inputs.version }}' }
+               else { '${{ github.ref_name }}'.TrimStart('v') }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Publish executable
+        shell: pwsh
+        run: .\build\publish.ps1 -Version ${{ steps.ver.outputs.version }}
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.ver.outputs.version }}" installer\LetsSSL4Windows.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LetsSSL4Windows-Setup
+          path: build/installer-output/*.exe
+
+      - name: Package PowerShell edition
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          New-Item -ItemType Directory -Force -Path build/ps-output | Out-Null
+          Copy-Item powershell/LetsSSL4Windows.ps1 "build/ps-output/LetsSSL4Windows-$v.ps1"
+          Compress-Archive -Path powershell/* -DestinationPath "build/ps-output/LetsSSL4Windows-PowerShell-$v.zip" -Force
+
+      - name: Upload PowerShell artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LetsSSL4Windows-PowerShell
+          path: build/ps-output/*
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/installer-output/*.exe
+            build/ps-output/LetsSSL4Windows-*.ps1
+            build/ps-output/LetsSSL4Windows-PowerShell-*.zip

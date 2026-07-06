@@ -1,0 +1,19 @@
+# Normalize line endings
+* text=auto
+
+# C# / project files use CRLF on checkout for Windows tooling friendliness
+*.cs text eol=crlf
+*.csproj text eol=crlf
+*.sln text eol=crlf
+*.xaml text eol=crlf
+*.manifest text eol=crlf
+
+# Scripts
+*.ps1 text eol=crlf
+*.sh text eol=lf
+*.yml text eol=lf
+
+# Binaries
+*.pfx binary
+*.png binary
+*.ico binary

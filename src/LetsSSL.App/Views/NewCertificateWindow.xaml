@@ -1,0 +1,152 @@
+<Window x:Class="LetsSSL.App.Views.NewCertificateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ctl="clr-namespace:LetsSSL.App.Controls"
+        Title="New certificate"
+        Width="600"
+        SizeToContent="Height" MaxHeight="940" MinHeight="380"
+        Background="{StaticResource Bg}"
+        WindowStartupLocation="CenterOwner">
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Request a new certificate" FontSize="18" FontWeight="Bold"
+                       Foreground="{StaticResource TextPrimary}" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" MaxHeight="780" Padding="0,0,8,0">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <TextBlock Text="Primary domain" FontWeight="SemiBold" />
+                    <TextBlock Style="{StaticResource InfoGlyph}"
+                               ToolTip="The main hostname the certificate secures (its common name). Example: www.example.com. Tick Wildcard below for *.example.com." />
+                </StackPanel>
+                <TextBox Text="{Binding PrimaryDomain, UpdateSourceTrigger=PropertyChanged}"
+                         ctl:Placeholder.Text="www.example.com" />
+                <CheckBox Content="Wildcard certificate (*.) — also covers the bare domain; uses DNS-01"
+                          IsChecked="{Binding IsWildcard}" Margin="0,6,0,0"
+                          VerticalContentAlignment="Center"
+                          ToolTip="Issues a *.example.com certificate covering all subdomains, and adds the bare domain as a SAN. Wildcards require DNS-01 validation." />
+
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
+                    <TextBlock Text="Additional domains (SAN) — optional" FontWeight="SemiBold" />
+                    <TextBlock Style="{StaticResource InfoGlyph}"
+                               ToolTip="Extra hostnames to include on the same certificate — one per line." />
+                </StackPanel>
+                <TextBox Text="{Binding SansText}" AcceptsReturn="True" Height="56"
+                         TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                         ctl:Placeholder.Text="mail.example.com&#x0a;api.example.com" />
+
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
+                    <TextBlock Text="Contact email" FontWeight="SemiBold" />
+                    <TextBlock Style="{StaticResource InfoGlyph}"
+                               ToolTip="Registers your Let's Encrypt account and receives expiry/issue notices." />
+                </StackPanel>
+                <TextBox Text="{Binding ContactEmail, UpdateSourceTrigger=PropertyChanged}"
+                         ctl:Placeholder.Text="you@example.com" />
+
+                <!-- Validation method -->
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                    <TextBlock Text="Validation method" FontWeight="SemiBold" />
+                    <TextBlock Style="{StaticResource InfoGlyph}"
+                               ToolTip="How you prove control of the domain. HTTP-01 serves a file over port 80; DNS-01 publishes a TXT record and is required for wildcards." />
+                </StackPanel>
+                <RadioButton Content="HTTP-01 — serve a file from the site (port 80 must be reachable)"
+                             IsChecked="{Binding UseHttp}" Margin="0,0,0,4"
+                             IsEnabled="{Binding IsWildcard, Converter={StaticResource InverseBool}}" />
+                <RadioButton Content="DNS-01 — publish a TXT record (required for wildcard certificates)"
+                             IsChecked="{Binding UseDns}" />
+
+                <!-- HTTP options -->
+                <StackPanel Visibility="{Binding ShowHttpOptions, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
+                        <TextBlock Text="Web root (for challenge files)" FontWeight="SemiBold" />
+                        <TextBlock Style="{StaticResource InfoGlyph}"
+                                   ToolTip="The folder served at the domain's root. The challenge file is written under \.well-known\acme-challenge\. Auto-filled from the chosen IIS site." />
+                    </StackPanel>
+                    <TextBox Text="{Binding WebRootPath, UpdateSourceTrigger=PropertyChanged}"
+                             ctl:Placeholder.Text="C:\inetpub\wwwroot" />
+                </StackPanel>
+
+                <!-- DNS options -->
+                <StackPanel Visibility="{Binding ShowDnsOptions, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
+                        <TextBlock Text="DNS provider" FontWeight="SemiBold" />
+                        <TextBlock Style="{StaticResource InfoGlyph}"
+                                   ToolTip="Who publishes the validation TXT record. Cloudflare does it automatically with an API token; Manual prompts you to create it by hand." />
+                    </StackPanel>
+                    <ComboBox ItemsSource="{Binding DnsProviders}" SelectedItem="{Binding SelectedDnsProvider}"
+                              Padding="8,6" />
+                    <StackPanel Visibility="{Binding ShowCloudflareToken, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
+                            <TextBlock Text="Cloudflare API token (Zone:DNS:Edit)" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource InfoGlyph}"
+                                       ToolTip="A Cloudflare API token with Zone:DNS:Edit on the domain's zone. Stored encrypted with Windows DPAPI." />
+                        </StackPanel>
+                        <TextBox Text="{Binding DnsApiToken, UpdateSourceTrigger=PropertyChanged}"
+                                 ctl:Placeholder.Text="Paste your Cloudflare API token" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- IIS site / binding -->
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,4">
+                    <TextBlock Text="IIS site (optional — for web root and binding)" FontWeight="SemiBold" />
+                    <TextBlock Style="{StaticResource InfoGlyph}"
+                               ToolTip="The IIS website to bind the certificate to and to auto-detect the web root. Leave unset if you're not using IIS." />
+                </StackPanel>
+                <ComboBox ItemsSource="{Binding IisSites}" SelectedItem="{Binding SelectedSite}"
+                          DisplayMemberPath="Name" Padding="8,6" />
+                <CheckBox Content="Bind the certificate to the selected IIS site (HTTPS / SNI)"
+                          IsChecked="{Binding BindToIis}" Margin="0,8,0,0" VerticalContentAlignment="Center"
+                          ToolTip="Adds or updates an HTTPS binding on the selected site, using SNI so multiple hosts can share port 443." />
+                <CheckBox Content="Auto-renew before expiry" IsChecked="{Binding AutoRenew}"
+                          Margin="0,6,0,0" VerticalContentAlignment="Center"
+                          ToolTip="Lets the renewal service/agent reissue this certificate automatically before it expires (default: 30 days before)." />
+
+                <!-- Deployment tasks -->
+                <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}"
+                        BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,16,0,0">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Deployment tasks (optional)" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource InfoGlyph}"
+                                       ToolTip="Actions to run after each successful issuance/renewal." />
+                        </StackPanel>
+                        <CheckBox Content="Export PFX to a path" IsChecked="{Binding ExportPfxEnabled}"
+                                  Margin="0,8,0,0"
+                                  ToolTip="Write the issued certificate as a .pfx file to a path you choose." />
+                        <StackPanel Visibility="{Binding ExportPfxEnabled, Converter={StaticResource BoolToVis}}"
+                                    Margin="22,4,0,0">
+                            <TextBox Text="{Binding ExportPfxPath}" Margin="0,0,0,4"
+                                     ctl:Placeholder.Text="C:\certs\example.pfx" />
+                            <TextBox Text="{Binding ExportPfxPassword}"
+                                     ctl:Placeholder.Text="Optional PFX password" />
+                        </StackPanel>
+                        <CheckBox Content="Run a script after issuance" IsChecked="{Binding RunScriptEnabled}"
+                                  Margin="0,10,0,0"
+                                  ToolTip="Run a .ps1 or .exe after issuance. Cert details are passed via LETSSSL4WINDOWS_* environment variables." />
+                        <StackPanel Visibility="{Binding RunScriptEnabled, Converter={StaticResource BoolToVis}}"
+                                    Margin="22,4,0,0">
+                            <TextBox Text="{Binding RunScriptPath}" Margin="0,0,0,4"
+                                     ctl:Placeholder.Text="C:\deploy\reload.ps1" />
+                            <TextBox Text="{Binding RunScriptArguments}"
+                                     ctl:Placeholder.Text="Optional arguments" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Cancel" Style="{StaticResource SecondaryButton}" Click="OnCancel" />
+            <Button Content="Request certificate" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                    Click="OnSubmit" IsEnabled="{Binding CanSubmit}" />
+        </StackPanel>
+    </Grid>
+</Window>

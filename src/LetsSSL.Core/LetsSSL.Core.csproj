@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <!-- Output assembly is branded LetsSSL4Windows.*; namespaces stay LetsSSL.* -->
+    <AssemblyName>LetsSSL4Windows.Core</AssemblyName>
+    <RootNamespace>LetsSSL.Core</RootNamespace>
+    <!-- No .pdb, so it doesn't land beside the single-file exe on publish. -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <!-- Core uses Windows-only APIs (X509 LocalMachine store, IIS). The
+         [SupportedOSPlatform("windows")] attributes document this; building
+         on net8.0 (not net8.0-windows) keeps the library easy to compile and
+         unit-test on any OS, while runtime use is Windows-only. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ACME (RFC 8555) client — MIT licensed -->
+    <PackageReference Include="Certes" Version="3.0.4" />
+    <!-- IIS site / binding management — Microsoft, redistributable -->
+    <PackageReference Include="Microsoft.Web.Administration" Version="11.1.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+    <!-- DPAPI credential protection for stored DNS provider tokens -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

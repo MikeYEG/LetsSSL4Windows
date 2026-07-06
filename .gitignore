@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+*.user
+.vs/
+[Tt]est[Rr]esults/
+*.trx
+
+# Publish / packaging output
+publish/
+*.pubxml.user
+build/publish/
+build/installer-output/
+
+# Rider / VS Code
+.idea/
+.vscode/
+
+# Local data
+*.pfx
+*.pem

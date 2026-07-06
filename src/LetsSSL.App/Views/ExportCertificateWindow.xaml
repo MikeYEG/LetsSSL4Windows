@@ -1,0 +1,54 @@
+<Window x:Class="LetsSSL.App.Views.ExportCertificateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ctl="clr-namespace:LetsSSL.App.Controls"
+        Title="Export certificate"
+        Width="500" SizeToContent="Height"
+        Background="{StaticResource Bg}"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+
+    <StackPanel Margin="24">
+        <TextBlock Text="Export certificate" FontSize="18" FontWeight="Bold"
+                   Foreground="{StaticResource TextPrimary}" />
+        <TextBlock x:Name="DomainText" Foreground="{StaticResource TextMuted}" Margin="0,4,0,0" />
+
+        <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+            <TextBlock Text="Format" FontWeight="SemiBold" />
+            <TextBlock Style="{StaticResource InfoGlyph}"
+                       ToolTip="PFX bundles the certificate and its private key in one password-protected file (use on Windows/IIS). PEM writes separate certificate and key files (nginx/Apache/HAProxy)." />
+        </StackPanel>
+        <RadioButton x:Name="PfxRadio" Content="PFX (.pfx) — certificate + private key, password-protected"
+                     IsChecked="True" Checked="OnFormatChanged" Margin="0,0,0,4" />
+        <RadioButton x:Name="PemRadio" Content="PEM (.pem) — certificate and key files"
+                     Checked="OnFormatChanged" />
+
+        <StackPanel x:Name="PasswordPanel">
+            <StackPanel Orientation="Horizontal" Margin="0,14,0,4">
+                <TextBlock Text="PFX password (recommended)" FontWeight="SemiBold" />
+                <TextBlock Style="{StaticResource InfoGlyph}"
+                           ToolTip="Protects the exported PFX. Leave blank to export without a password (not recommended; some tools reject empty-password PFX files)." />
+            </StackPanel>
+            <TextBox x:Name="PasswordBox" ctl:Placeholder.Text="Enter a password for the .pfx" />
+        </StackPanel>
+
+        <TextBlock Text="Save to" FontWeight="SemiBold" Margin="0,14,0,4" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="PathBox" Grid.Column="0" ctl:Placeholder.Text="C:\certs\example.pfx" />
+            <Button x:Name="BrowseButton" Grid.Column="2" Content="Browse…"
+                    Style="{StaticResource SecondaryButton}" Click="OnBrowse" />
+        </Grid>
+        <TextBlock x:Name="PemHint" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap"
+                   Margin="0,6,0,0" Visibility="Collapsed"
+                   Text="PEM export writes two files: the chosen .pem (certificate) and a matching .key (private key) beside it." />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Content="Cancel" Style="{StaticResource SecondaryButton}" Click="OnCancel" />
+            <Button Content="Export" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" Click="OnExport" />
+        </StackPanel>
+    </StackPanel>
+</Window>
