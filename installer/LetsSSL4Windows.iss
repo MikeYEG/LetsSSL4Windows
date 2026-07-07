@@ -24,6 +24,13 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir=..\build\installer-output
 OutputBaseFilename=LetsSSL4Windows-Setup-{#AppVersion}
+; Stamp the version onto the generated Setup.exe (Explorer > Details) and use
+; the app icon for the installer.
+VersionInfoVersion={#AppVersion}
+VersionInfoProductVersion={#AppVersion}
+VersionInfoProductName={#AppName}
+VersionInfoCompany={#AppPublisher}
+SetupIconFile=..\src\LetsSSL.App\Assets\app.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -44,7 +51,9 @@ Name: "installservice"; Description: "Install and start the renewal service (rec
 Name: "trayatlogin"; Description: "Start the system-tray companion at login"; GroupDescription: "System tray:"; Flags: unchecked
 
 [Files]
-Source: "..\build\publish\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+; publish.ps1 names the file with the version; install it under the canonical
+; name so shortcuts, the service, and self-relaunch keep working.
+Source: "..\build\publish\LetsSSL4Windows-{#AppVersion}.exe"; DestDir: "{app}"; DestName: "{#AppExe}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"

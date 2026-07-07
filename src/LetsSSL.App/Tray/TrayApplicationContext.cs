@@ -50,7 +50,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         _icon = new NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Shield,
+            Icon = LoadAppIcon() ?? System.Drawing.SystemIcons.Shield,
             Text = "LetsSSL4Windows",
             Visible = true,
             ContextMenuStrip = menu,
@@ -62,6 +62,18 @@ public sealed class TrayApplicationContext : ApplicationContext
         _timer.Start();
 
         RefreshMenu();
+    }
+
+    // The tray runs as a WinForms app (no WPF Application), so load the icon from
+    // the exe's own embedded Win32 icon rather than a pack resource.
+    private static System.Drawing.Icon? LoadAppIcon()
+    {
+        try
+        {
+            var exe = Environment.ProcessPath;
+            return exe is null ? null : System.Drawing.Icon.ExtractAssociatedIcon(exe);
+        }
+        catch { return null; }
     }
 
     private void RefreshMenu()

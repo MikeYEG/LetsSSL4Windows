@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Windows.Media;
 using LetsSSL.Core.Models;
 
@@ -12,7 +13,9 @@ public class CertificateRowViewModel : ViewModelBase
 
     public string Name => string.IsNullOrWhiteSpace(Model.Name) ? Model.PrimaryDomain : Model.Name;
     public string Domains => string.Join(", ", Model.AllDomains);
-    public string IisSite => Model.IisSiteName ?? "—";
+    public string IisSite =>
+        Model.IisSiteNames is { Count: > 0 } names ? string.Join(", ", names)
+        : Model.IisSiteName ?? "—";
 
     public string Expiry => Model.NotAfter is { } na
         ? na.ToLocalTime().ToString("yyyy-MM-dd")

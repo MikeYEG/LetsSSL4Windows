@@ -94,17 +94,56 @@
                     </StackPanel>
                 </StackPanel>
 
-                <!-- IIS site / binding -->
+                <!-- IIS site(s) / binding -->
                 <StackPanel Orientation="Horizontal" Margin="0,16,0,4">
-                    <TextBlock Text="IIS site (optional — for web root and binding)" FontWeight="SemiBold" />
+                    <TextBlock Text="IIS sites (optional — for web root and binding)" FontWeight="SemiBold" />
                     <TextBlock Style="{StaticResource InfoGlyph}"
-                               ToolTip="The IIS website to bind the certificate to and to auto-detect the web root. Leave unset if you're not using IIS." />
+                               ToolTip="The IIS website(s) to bind the certificate to and to auto-detect the web root. Tick one or more sites, or leave all unticked if you're not using IIS." />
                 </StackPanel>
-                <ComboBox ItemsSource="{Binding IisSites}" SelectedItem="{Binding SelectedSite}"
-                          DisplayMemberPath="Name" Padding="8,6" />
-                <CheckBox Content="Bind the certificate to the selected IIS site (HTTPS / SNI)"
+                <Grid>
+                    <ToggleButton x:Name="SitesDropToggle" MinHeight="34" HorizontalContentAlignment="Stretch"
+                                  Background="{StaticResource SurfaceAlt}" BorderBrush="{StaticResource Border}">
+                        <ToggleButton.Template>
+                            <ControlTemplate TargetType="ToggleButton">
+                                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="1" CornerRadius="6">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="24" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding SitesSummary}" Margin="10,0,0,0"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{StaticResource TextPrimary}" />
+                                        <Path Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Data="M 0 0 L 4 4 L 8 0 Z" Fill="{StaticResource TextMuted}" />
+                                    </Grid>
+                                </Border>
+                            </ControlTemplate>
+                        </ToggleButton.Template>
+                    </ToggleButton>
+                    <Popup IsOpen="{Binding IsChecked, ElementName=SitesDropToggle}" StaysOpen="False"
+                           Placement="Bottom" PlacementTarget="{Binding ElementName=SitesDropToggle}"
+                           AllowsTransparency="True" PopupAnimation="Slide"
+                           Width="{Binding ActualWidth, ElementName=SitesDropToggle}">
+                        <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}"
+                                BorderThickness="1" CornerRadius="6" Margin="0,2,0,0">
+                            <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding SiteSelections}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox Content="{Binding Name}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                      Margin="10,6" VerticalContentAlignment="Center" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+                    </Popup>
+                </Grid>
+                <CheckBox Content="Bind the certificate to the selected IIS site(s) (HTTPS / SNI)"
                           IsChecked="{Binding BindToIis}" Margin="0,8,0,0" VerticalContentAlignment="Center"
-                          ToolTip="Adds or updates an HTTPS binding on the selected site, using SNI so multiple hosts can share port 443." />
+                          ToolTip="Adds or updates an HTTPS binding on each selected site, using SNI so multiple hosts can share port 443." />
                 <CheckBox Content="Auto-renew before expiry" IsChecked="{Binding AutoRenew}"
                           Margin="0,6,0,0" VerticalContentAlignment="Center"
                           ToolTip="Lets the renewal service/agent reissue this certificate automatically before it expires (default: 30 days before)." />

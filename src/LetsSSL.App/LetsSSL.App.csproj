@@ -10,19 +10,34 @@
     <AssemblyName>LetsSSL4Windows</AssemblyName>
     <RootNamespace>LetsSSL.App</RootNamespace>
     <!-- Current version; the build/release scripts override this with -p:Version.
-         The update check compares the GitHub release tag against this. -->
+         The update check compares the GitHub release tag against this. Version
+         also drives the exe's File/Product version metadata (shown in Explorer's
+         Details tab), and FileVersion needs 4 numeric parts. -->
     <Version>1.0.0</Version>
+    <FileVersion>$(Version).0</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <Product>LetsSSL4Windows</Product>
+    <AssemblyTitle>LetsSSL4Windows</AssemblyTitle>
+    <FileDescription>LetsSSL4Windows — free Windows SSL/TLS certificate manager</FileDescription>
+    <Company>LetsSSL4Windows</Company>
+    <Copyright>MIT License</Copyright>
+    <!-- Window + taskbar + exe icon. -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Custom entry point (Program.Main) dispatches GUI / tray / service modes. -->
     <StartupObject>LetsSSL.App.Program</StartupObject>
 
-    <!-- Always publish as a single self-extracting .exe (native libs + content
-         embedded), so the publish folder contains just LetsSSL4Windows.exe.
-         Applies to both self-contained and framework-dependent publishes. -->
+    <!-- Publish as a single .exe (the publish folder contains just the one file).
+         Native libraries are bundled and extracted at run time (WPF self-contained
+         requires this), but we deliberately DO NOT drop the managed assemblies to
+         temp and DO NOT compress the bundle: an app that self-extracts everything
+         to temp and runs a compressed/"packed" payload looks like malware to
+         Windows Defender's ML heuristic (Behavior:Win32/DefenseEvasion.A!ml).
+         Trade-off: the exe is larger, but it scans as ordinary content. -->
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
-    <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'true'">true</EnableCompressionInSingleFile>
+    <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
     <!-- Only ship English resources (drops the per-language satellite folders). -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType>none</DebugType>
@@ -33,6 +48,8 @@
     <!-- App.xaml supplies app-wide resources but is NOT the entry point. -->
     <ApplicationDefinition Remove="App.xaml" />
     <Page Include="App.xaml" />
+    <!-- Embed the icon so every Window can load it via a pack URI at runtime. -->
+    <Resource Include="Assets\app.ico" />
   </ItemGroup>
 
   <ItemGroup>

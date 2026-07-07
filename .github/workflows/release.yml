@@ -72,5 +72,6 @@ jobs:
         with:
           files: |
             build/installer-output/*.exe
+            build/publish/LetsSSL4Windows-*.exe
             build/ps-output/LetsSSL4Windows-*.ps1
             build/ps-output/LetsSSL4Windows-PowerShell-*.zip

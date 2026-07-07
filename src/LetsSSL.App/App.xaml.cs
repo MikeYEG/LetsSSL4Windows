@@ -1,5 +1,7 @@
+using System;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using LetsSSL.Core.Storage;
 
@@ -7,6 +9,17 @@ namespace LetsSSL.App;
 
 public partial class App : Application
 {
+    // The shared window/taskbar icon, loaded once from the embedded resource.
+    private static readonly Lazy<BitmapFrame?> AppIcon = new(() =>
+    {
+        try
+        {
+            return BitmapFrame.Create(
+                new Uri("pack://application:,,,/Assets/app.ico", UriKind.Absolute));
+        }
+        catch { return null; }
+    });
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -20,9 +33,15 @@ public partial class App : Application
         var settings = new SettingsRepository(new AppPaths()).Load();
         ThemeManager.Apply(settings.Theme);
 
-        // Match each window's title bar to the current theme as it loads.
+        // Give every window the app icon and a theme-matched title bar as it loads.
         EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
-            new RoutedEventHandler((sender, _) => Theming.ApplyTitleBar((Window)sender)));
+            new RoutedEventHandler((sender, _) =>
+            {
+                var window = (Window)sender;
+                if (window.Icon is null && AppIcon.Value is { } icon)
+                    window.Icon = icon;
+                Theming.ApplyTitleBar(window);
+            }));
     }
 
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

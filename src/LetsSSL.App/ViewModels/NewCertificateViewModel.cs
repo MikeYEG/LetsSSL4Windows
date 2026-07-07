@@ -19,26 +19,44 @@ public class NewCertificateViewModel : ViewModelBase
 
     // ---- Domains / contact ----
 
-    public ObservableCollection<IisSiteInfo> IisSites { get; } = new();
+    /// <summary>Checkable IIS sites; more than one can be selected for binding.</summary>
+    public ObservableCollection<SiteSelectionViewModel> SiteSelections { get; } = new();
     public bool IisAvailable { get; private set; }
 
-    private IisSiteInfo? _selectedSite;
-    public IisSiteInfo? SelectedSite
+    public IEnumerable<IisSiteInfo> SelectedSites =>
+        SiteSelections.Where(s => s.IsSelected).Select(s => s.Site);
+
+    /// <summary>Text shown on the collapsed multi-select dropdown.</summary>
+    public string SitesSummary
     {
-        get => _selectedSite;
-        set
+        get
         {
-            if (SetField(ref _selectedSite, value) && value?.PhysicalPath is { } p)
+            var names = SelectedSites.Select(s => s.Name).ToList();
+            return names.Count switch
             {
-                if (string.IsNullOrWhiteSpace(WebRootPath)) WebRootPath = p;
-                if (string.IsNullOrWhiteSpace(PrimaryDomain))
-                {
-                    var host = value.Bindings.Select(ParseHost).FirstOrDefault(h => !string.IsNullOrEmpty(h));
-                    if (!string.IsNullOrEmpty(host)) PrimaryDomain = host!;
-                }
-                OnPropertyChanged(nameof(CanSubmit));
+                0 => "Select IIS site(s)…",
+                1 => names[0],
+                2 => $"{names[0]}, {names[1]}",
+                _ => $"{names.Count} sites selected",
+            };
+        }
+    }
+
+    private void OnSiteSelectionChanged()
+    {
+        var first = SelectedSites.FirstOrDefault();
+        if (first is not null)
+        {
+            if (string.IsNullOrWhiteSpace(WebRootPath) && first.PhysicalPath is { } p)
+                WebRootPath = p;
+            if (string.IsNullOrWhiteSpace(PrimaryDomain))
+            {
+                var host = first.Bindings.Select(ParseHost).FirstOrDefault(h => !string.IsNullOrEmpty(h));
+                if (!string.IsNullOrEmpty(host)) PrimaryDomain = host!;
             }
         }
+        OnPropertyChanged(nameof(SitesSummary));
+        OnPropertyChanged(nameof(CanSubmit));
     }
 
     private string _primaryDomain = string.Empty;
@@ -206,7 +224,7 @@ public class NewCertificateViewModel : ViewModelBase
             if (UseDns)
                 return SelectedDnsProvider != DnsProviderType.Cloudflare || !string.IsNullOrWhiteSpace(DnsApiToken);
             // HTTP-01 needs a place to write challenge files.
-            return SelectedSite != null || !string.IsNullOrWhiteSpace(WebRootPath);
+            return SelectedSites.Any() || !string.IsNullOrWhiteSpace(WebRootPath);
         }
     }
 
@@ -216,7 +234,8 @@ public class NewCertificateViewModel : ViewModelBase
         {
             IisAvailable = IisManager.IsIisAvailable();
             if (!IisAvailable) return;
-            foreach (var s in new IisManager().GetSites()) IisSites.Add(s);
+            foreach (var s in new IisManager().GetSites())
+                SiteSelections.Add(new SiteSelectionViewModel(s, OnSiteSelectionChanged));
         }
         catch { IisAvailable = false; }
     }
@@ -227,6 +246,8 @@ public class NewCertificateViewModel : ViewModelBase
             .Split(new[] { '\r', '\n', ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
 
+        var selectedSites = SelectedSites.ToList();
+
         var cert = new ManagedCertificate
         {
             Name = PrimaryDomain.Trim(),
@@ -234,9 +255,10 @@ public class NewCertificateViewModel : ViewModelBase
             SubjectAlternativeNames = sans,
             ContactEmail = ContactEmail.Trim(),
             ChallengeType = UseDns ? ChallengeType.Dns01 : ChallengeType.Http01,
-            IisSiteName = SelectedSite?.Name,
+            IisSiteName = selectedSites.FirstOrDefault()?.Name,
+            IisSiteNames = selectedSites.Select(s => s.Name).ToList(),
             WebRootPath = string.IsNullOrWhiteSpace(WebRootPath) ? null : WebRootPath.Trim(),
-            BindToIis = BindToIis && SelectedSite != null,
+            BindToIis = BindToIis && selectedSites.Count > 0,
             AutoRenew = AutoRenew,
         };
 

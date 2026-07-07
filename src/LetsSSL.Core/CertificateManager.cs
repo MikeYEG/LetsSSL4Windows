@@ -81,9 +81,9 @@ public class CertificateManager
             config.PfxPath = pfxPath;
             config.LastError = null;
 
-            if (config.BindToIis && !string.IsNullOrWhiteSpace(config.IisSiteName))
+            if (config.BindToIis && EffectiveSites(config).Count > 0)
             {
-                progress?.Report($"Binding certificate to IIS site '{config.IisSiteName}'…");
+                progress?.Report($"Binding certificate to IIS site(s): {string.Join(", ", EffectiveSites(config))}…");
                 BindToIis(config, installed);
             }
 
@@ -151,17 +151,28 @@ public class CertificateManager
         _ => throw new NotSupportedException($"Unknown DNS provider: {config.DnsProvider}"),
     };
 
+    /// <summary>The IIS sites a certificate should bind to (the list, or the single legacy name).</summary>
+    private static IReadOnlyList<string> EffectiveSites(ManagedCertificate config)
+    {
+        if (config.IisSiteNames is { Count: > 0 })
+            return config.IisSiteNames;
+        return string.IsNullOrWhiteSpace(config.IisSiteName)
+            ? Array.Empty<string>()
+            : new[] { config.IisSiteName! };
+    }
+
     private void BindToIis(ManagedCertificate config, X509Certificate2 cert)
     {
         var iis = new IisManager();
         var hash = HexToBytes(cert.Thumbprint);
-        // Bind every host name on the certificate that this site should serve.
-        foreach (var domain in config.AllDomains)
-        {
-            if (domain.StartsWith("*.", StringComparison.Ordinal))
-                continue; // wildcard hosts are not valid SNI binding host names
-            iis.BindCertificate(config.IisSiteName!, domain, hash, _store.StoreNameForIis);
-        }
+        // Bind every host name on the certificate to every selected IIS site.
+        foreach (var site in EffectiveSites(config))
+            foreach (var domain in config.AllDomains)
+            {
+                if (domain.StartsWith("*.", StringComparison.Ordinal))
+                    continue; // wildcard hosts are not valid SNI binding host names
+                iis.BindCertificate(site, domain, hash, _store.StoreNameForIis);
+            }
     }
 
     /// <summary>
@@ -174,6 +185,8 @@ public class CertificateManager
             throw new InvalidOperationException("This certificate hasn't been issued yet, so there's nothing to bind.");
 
         config.IisSiteName = siteName;
+        if (!config.IisSiteNames.Contains(siteName, StringComparer.OrdinalIgnoreCase))
+            config.IisSiteNames.Add(siteName);
         config.BindToIis = true;
 
         var iis = new IisManager();

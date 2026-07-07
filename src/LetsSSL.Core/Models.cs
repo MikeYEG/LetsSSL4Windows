@@ -133,7 +133,14 @@ public class ManagedCertificate
     /// <summary>Post-issuance deployment tasks, run in order after install/bind.</summary>
     public List<DeploymentTaskConfig> DeploymentTasks { get; set; } = new();
 
+    /// <summary>
+    /// Primary IIS site (used to auto-detect the web root and kept for backward
+    /// compatibility). When binding, every site in <see cref="IisSiteNames"/> is
+    /// used; if that list is empty this single name is used.
+    /// </summary>
     public string? IisSiteName { get; set; }
+    /// <summary>All IIS sites the certificate should be bound to.</summary>
+    public List<string> IisSiteNames { get; set; } = new();
     public string? WebRootPath { get; set; }
     public bool BindToIis { get; set; } = true;
     public bool AutoRenew { get; set; } = true;
