@@ -7,7 +7,7 @@
 .EXAMPLE
   .\scripts\init-repo.ps1
 .EXAMPLE
-  .\scripts\init-repo.ps1 -RemoteUrl https://github.com/MikeYeg/LetsSSL4Windows.git
+  .\scripts\init-repo.ps1 -RemoteUrl https://github.com/MikeYEG/LetsSSL4Windows.git
 #>
 param(
     [string]$RemoteUrl

@@ -71,9 +71,9 @@ public class NewCertificateViewModel : ViewModelBase
 
     private bool _isWildcard;
     /// <summary>
-    /// When checked, prepends "*." to the primary domain and adds the bare apex
-    /// domain as a SAN (so the cert covers both *.example.com and example.com),
-    /// and forces DNS-01 (the only validation method a CA allows for wildcards).
+    /// When checked, prepends "*." to the primary domain and forces DNS-01 (the
+    /// only validation method a CA allows for wildcards). The bare apex domain is
+    /// covered too only when <see cref="IncludeApexDomain"/> is set.
     /// </summary>
     public bool IsWildcard
     {
@@ -81,14 +81,15 @@ public class NewCertificateViewModel : ViewModelBase
         set
         {
             if (!SetField(ref _isWildcard, value)) return;
+            OnPropertyChanged(nameof(ShowApexOption));
             if (value)
             {
                 UseDns = true; // wildcards must validate via DNS-01
-                var apex = (PrimaryDomain ?? string.Empty).Trim().TrimStart('*').TrimStart('.');
+                var apex = ApexOf(PrimaryDomain);
                 if (apex.Length > 0)
                 {
                     PrimaryDomain = "*." + apex;
-                    AddSan(apex); // also cover the bare domain
+                    if (IncludeApexDomain) AddSan(apex); // optionally also cover the bare domain
                 }
             }
             else if ((PrimaryDomain ?? string.Empty).StartsWith("*.", StringComparison.Ordinal))
@@ -99,6 +100,33 @@ public class NewCertificateViewModel : ViewModelBase
             }
         }
     }
+
+    private bool _includeApexDomain = true;
+    /// <summary>
+    /// For a wildcard cert, also cover the bare apex domain (example.com). This
+    /// adds a SECOND DNS-01 TXT record (the wildcard and the apex validate
+    /// separately at the same _acme-challenge name). Uncheck to need only one
+    /// record — the cert then covers *.example.com but not example.com itself.
+    /// </summary>
+    public bool IncludeApexDomain
+    {
+        get => _includeApexDomain;
+        set
+        {
+            if (!SetField(ref _includeApexDomain, value)) return;
+            if (!IsWildcard) return;
+            var apex = ApexOf(PrimaryDomain);
+            if (apex.Length == 0) return;
+            if (value) AddSan(apex); else RemoveSan(apex);
+        }
+    }
+
+    /// <summary>Whether to show the "also cover the bare domain" option (wildcard only).</summary>
+    public bool ShowApexOption => IsWildcard;
+
+    /// <summary>The bare apex domain for a primary domain, stripping any leading "*.".</summary>
+    private static string ApexOf(string? domain) =>
+        (domain ?? string.Empty).Trim().TrimStart('*').TrimStart('.');
 
     private void AddSan(string domain)
     {

@@ -8,8 +8,8 @@
 #endif
 
 #define AppName "LetsSSL4Windows"
-#define AppPublisher "MikeYeg"
-#define AppUrl "https://github.com/MikeYeg/LetsSSL4Windows"
+#define AppPublisher "MikeYEG"
+#define AppUrl "https://github.com/MikeYEG/LetsSSL4Windows"
 #define AppExe "LetsSSL4Windows.exe"
 
 [Setup]

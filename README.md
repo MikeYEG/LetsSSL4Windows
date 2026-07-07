@@ -8,24 +8,24 @@
 
 <br/>
 
-[![CI](https://github.com/MikeYeg/LetsSSL4Windows/actions/workflows/ci.yml/badge.svg)](https://github.com/MikeYeg/LetsSSL4Windows/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/github/license/MikeYeg/LetsSSL4Windows?color=blue)](LICENSE)
+[![CI](https://github.com/MikeYEG/LetsSSL4Windows/actions/workflows/ci.yml/badge.svg)](https://github.com/MikeYEG/LetsSSL4Windows/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/MikeYEG/LetsSSL4Windows?color=blue)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/8.0)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20%7C%20Server-0078D6?logo=windows&logoColor=white)](#prerequisites)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
-[![GitHub stars](https://img.shields.io/github/stars/MikeYeg/LetsSSL4Windows?style=social)](https://github.com/MikeYeg/LetsSSL4Windows/stargazers)
-[![GitHub issues](https://img.shields.io/github/issues/MikeYeg/LetsSSL4Windows)](https://github.com/MikeYeg/LetsSSL4Windows/issues)
+[![GitHub stars](https://img.shields.io/github/stars/MikeYEG/LetsSSL4Windows?style=social)](https://github.com/MikeYEG/LetsSSL4Windows/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/MikeYEG/LetsSSL4Windows)](https://github.com/MikeYEG/LetsSSL4Windows/issues)
 
 <br/>
 
 **❤️ If LetsSSL4Windows saves you a license fee, consider supporting development:**
 
-[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/MikeYeg)
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/MikeYEG)
 &nbsp;
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/MikeYeg)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/MikeYEG)
 
-<a href="https://www.buymeacoffee.com/MikeYeg" target="_blank">
+<a href="https://www.buymeacoffee.com/MikeYEG" target="_blank">
   <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="44" />
 </a>
 
@@ -125,7 +125,7 @@ renew, bind, and export certificates the desktop app created, and vice versa. Se
 
 ```powershell
 # 1. Clone
-git clone https://github.com/MikeYeg/LetsSSL4Windows.git
+git clone https://github.com/MikeYEG/LetsSSL4Windows.git
 cd LetsSSL4Windows
 
 # 2. Build (requires the .NET 8 SDK)
@@ -354,7 +354,7 @@ from the repository root:
 ```powershell
 .\scripts\init-repo.ps1
 # optionally push to a remote:
-.\scripts\init-repo.ps1 -RemoteUrl https://github.com/MikeYeg/LetsSSL4Windows.git
+.\scripts\init-repo.ps1 -RemoteUrl https://github.com/MikeYEG/LetsSSL4Windows.git
 ```
 
 ## Data & security
@@ -389,13 +389,13 @@ Contributions are very welcome! Please:
 LetsSSL4Windows is free and always will be. If it helps you, you can support
 ongoing development:
 
-- ❤️ [**Sponsor on GitHub**](https://github.com/sponsors/MikeYeg)
-- ☕ [**Buy Me a Coffee**](https://www.buymeacoffee.com/MikeYeg)
+- ❤️ [**Sponsor on GitHub**](https://github.com/sponsors/MikeYEG)
+- ☕ [**Buy Me a Coffee**](https://www.buymeacoffee.com/MikeYEG)
 - ⭐ Star the repo and share it with other Windows admins!
 
 ## License
 
-[MIT](LICENSE) © MikeYeg and contributors. Third-party components are listed in
+[MIT](LICENSE) © MikeYEG and contributors. Third-party components are listed in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); all are permissively licensed.
 Let's Encrypt is a service of the Internet Security Research Group (ISRG);
 certificates are subject to Let's Encrypt's Subscriber Agreement and rate limits.

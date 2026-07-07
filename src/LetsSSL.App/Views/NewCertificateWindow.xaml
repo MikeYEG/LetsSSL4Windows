@@ -29,10 +29,15 @@
                 </StackPanel>
                 <TextBox Text="{Binding PrimaryDomain, UpdateSourceTrigger=PropertyChanged}"
                          ctl:Placeholder.Text="www.example.com" />
-                <CheckBox Content="Wildcard certificate (*.) — also covers the bare domain; uses DNS-01"
+                <CheckBox Content="Wildcard certificate (*.) — covers all subdomains; uses DNS-01"
                           IsChecked="{Binding IsWildcard}" Margin="0,6,0,0"
                           VerticalContentAlignment="Center"
-                          ToolTip="Issues a *.example.com certificate covering all subdomains, and adds the bare domain as a SAN. Wildcards require DNS-01 validation." />
+                          ToolTip="Issues a *.example.com certificate covering all subdomains. Wildcards require DNS-01 validation." />
+                <CheckBox Content="Also cover the bare domain (needs a second DNS record)"
+                          IsChecked="{Binding IncludeApexDomain}" Margin="22,4,0,0"
+                          VerticalContentAlignment="Center"
+                          Visibility="{Binding ShowApexOption, Converter={StaticResource BoolToVis}}"
+                          ToolTip="Adds example.com alongside *.example.com. The wildcard and the bare domain validate separately, so this requires a SECOND TXT record at the same _acme-challenge name. Uncheck to need only one DNS record (the cert then won't cover example.com itself)." />
 
                 <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
                     <TextBlock Text="Additional domains (SAN) — optional" FontWeight="SemiBold" />

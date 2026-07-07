@@ -237,6 +237,6 @@ against Let's Encrypt **staging**.
 
 ## License
 
-MIT © MikeYeg and contributors. Let's Encrypt is a service of the Internet
+MIT © MikeYEG and contributors. Let's Encrypt is a service of the Internet
 Security Research Group (ISRG); certificates are subject to Let's Encrypt's
 Subscriber Agreement and rate limits.

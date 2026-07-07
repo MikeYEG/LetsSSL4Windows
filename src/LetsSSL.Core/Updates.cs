@@ -21,7 +21,7 @@ public sealed class UpdateInfo
 public sealed class UpdateChecker
 {
     private const string LatestReleaseApi =
-        "https://api.github.com/repos/MikeYeg/LetsSSL4Windows/releases/latest";
+        "https://api.github.com/repos/MikeYEG/LetsSSL4Windows/releases/latest";
 
     private readonly HttpClient _http;
 

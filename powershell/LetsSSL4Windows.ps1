@@ -51,7 +51,7 @@
     Requires Windows PowerShell 5.1+ or PowerShell 7+, run as Administrator for
     cert-store / IIS / scheduled-task operations. Posh-ACME is installed
     automatically (CurrentUser scope) if missing.
-    MIT License (c) MikeYeg and contributors.
+    MIT License (c) MikeYEG and contributors.
 #>
 
 [CmdletBinding()]
