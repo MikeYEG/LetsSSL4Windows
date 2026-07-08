@@ -27,7 +27,8 @@
                     <TextBlock Style="{StaticResource InfoGlyph}"
                                ToolTip="The main hostname the certificate secures (its common name). Example: www.example.com. Tick Wildcard below for *.example.com." />
                 </StackPanel>
-                <TextBox Text="{Binding PrimaryDomain, UpdateSourceTrigger=PropertyChanged}"
+                <TextBox x:Name="PrimaryDomainBox" TextChanged="OnRequiredFieldChanged"
+                         Text="{Binding PrimaryDomain, UpdateSourceTrigger=PropertyChanged}"
                          ctl:Placeholder.Text="www.example.com" />
                 <CheckBox Content="Wildcard certificate (*.) — covers all subdomains; uses DNS-01"
                           IsChecked="{Binding IsWildcard}" Margin="0,6,0,0"
@@ -53,7 +54,8 @@
                     <TextBlock Style="{StaticResource InfoGlyph}"
                                ToolTip="Registers your Let's Encrypt account and receives expiry/issue notices." />
                 </StackPanel>
-                <TextBox Text="{Binding ContactEmail, UpdateSourceTrigger=PropertyChanged}"
+                <TextBox x:Name="ContactEmailBox" TextChanged="OnRequiredFieldChanged"
+                         Text="{Binding ContactEmail, UpdateSourceTrigger=PropertyChanged}"
                          ctl:Placeholder.Text="you@example.com" />
 
                 <!-- Validation method -->
@@ -75,7 +77,8 @@
                         <TextBlock Style="{StaticResource InfoGlyph}"
                                    ToolTip="The folder served at the domain's root. The challenge file is written under \.well-known\acme-challenge\. Auto-filled from the chosen IIS site." />
                     </StackPanel>
-                    <TextBox Text="{Binding WebRootPath, UpdateSourceTrigger=PropertyChanged}"
+                    <TextBox x:Name="WebRootBox" TextChanged="OnRequiredFieldChanged"
+                             Text="{Binding WebRootPath, UpdateSourceTrigger=PropertyChanged}"
                              ctl:Placeholder.Text="C:\inetpub\wwwroot" />
                 </StackPanel>
 
@@ -87,15 +90,51 @@
                                    ToolTip="Who publishes the validation TXT record. Cloudflare does it automatically with an API token; Manual prompts you to create it by hand." />
                     </StackPanel>
                     <ComboBox ItemsSource="{Binding DnsProviders}" SelectedItem="{Binding SelectedDnsProvider}"
-                              Padding="8,6" />
+                              Padding="8,6">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource DnsProviderName}}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                     <StackPanel Visibility="{Binding ShowCloudflareToken, Converter={StaticResource BoolToVis}}">
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
                             <TextBlock Text="Cloudflare API token (Zone:DNS:Edit)" FontWeight="SemiBold" />
                             <TextBlock Style="{StaticResource InfoGlyph}"
                                        ToolTip="A Cloudflare API token with Zone:DNS:Edit on the domain's zone. Stored encrypted with Windows DPAPI." />
                         </StackPanel>
-                        <TextBox Text="{Binding DnsApiToken, UpdateSourceTrigger=PropertyChanged}"
+                        <TextBox x:Name="DnsApiTokenBox" TextChanged="OnRequiredFieldChanged"
+                                 Text="{Binding DnsApiToken, UpdateSourceTrigger=PropertyChanged}"
                                  ctl:Placeholder.Text="Paste your Cloudflare API token" />
+                    </StackPanel>
+
+                    <!-- Route 53 (AWS) credentials -->
+                    <StackPanel Visibility="{Binding ShowRoute53Fields, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
+                            <TextBlock Text="AWS Access Key ID" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource InfoGlyph}"
+                                       ToolTip="An IAM access key with permission to change records in the hosted zone (route53:ChangeResourceRecordSets, ListHostedZones, GetChange). Stored encrypted with Windows DPAPI." />
+                        </StackPanel>
+                        <TextBox x:Name="AwsAccessKeyBox" TextChanged="OnRequiredFieldChanged"
+                                 Text="{Binding AwsAccessKeyId, UpdateSourceTrigger=PropertyChanged}"
+                                 ctl:Placeholder.Text="AKIA..." />
+
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
+                            <TextBlock Text="AWS Secret Access Key" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource InfoGlyph}"
+                                       ToolTip="The secret paired with the access key ID. Stored encrypted with Windows DPAPI." />
+                        </StackPanel>
+                        <TextBox x:Name="AwsSecretBox" TextChanged="OnRequiredFieldChanged"
+                                 Text="{Binding AwsSecretAccessKey, UpdateSourceTrigger=PropertyChanged}"
+                                 ctl:Placeholder.Text="Secret access key" />
+
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
+                            <TextBlock Text="Hosted Zone ID — optional" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource InfoGlyph}"
+                                       ToolTip="The Route 53 hosted zone ID (e.g. Z1234567890ABC). Leave blank to auto-detect the zone that contains your domain." />
+                        </StackPanel>
+                        <TextBox Text="{Binding AwsHostedZoneId, UpdateSourceTrigger=PropertyChanged}"
+                                 ctl:Placeholder.Text="Auto-detected if left blank" />
                     </StackPanel>
                 </StackPanel>
 
@@ -187,10 +226,15 @@
             </StackPanel>
         </ScrollViewer>
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button Content="Cancel" Style="{StaticResource SecondaryButton}" Click="OnCancel" />
-            <Button Content="Request certificate" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
-                    Click="OnSubmit" IsEnabled="{Binding CanSubmit}" />
-        </StackPanel>
+        <Grid Grid.Row="2" Margin="0,16,0,0">
+            <TextBlock x:Name="ValidationMessage" Foreground="{StaticResource Danger}"
+                       VerticalAlignment="Center" HorizontalAlignment="Left" TextWrapping="Wrap"
+                       MaxWidth="360" FontSize="12" Visibility="Collapsed" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Cancel" Style="{StaticResource SecondaryButton}" Click="OnCancel" />
+                <Button Content="Request certificate" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                        Click="OnSubmit" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

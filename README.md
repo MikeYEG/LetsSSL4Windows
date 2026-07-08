@@ -86,7 +86,7 @@ renew, bind, and export certificates the desktop app created, and vice versa. Se
 
 - 🔐 **Let's Encrypt issuance** over ACME (RFC 8555), powered by the MIT-licensed [Certes](https://github.com/fszlin/certes) client.
 - 🌐 **HTTP-01 and DNS-01 validation**, including **wildcard certificates** (`*.example.com`).
-- ☁️ **DNS providers**: Cloudflare (automated) and Manual, with a pluggable provider interface.
+- ☁️ **DNS providers**: Cloudflare and Route 53 (automated) and Manual, with a pluggable provider interface.
 - 🪟 **Windows-native**: installs to the `LocalMachine` certificate store and **auto-binds to IIS** with SNI.
 - 🔁 **Automatic renewal** via a background Windows Service.
 - 🚀 **Deployment tasks**: export PFX, export PEM (`fullchain.pem` + `privkey.pem`), or run a post-issue script.
@@ -103,7 +103,7 @@ renew, bind, and export certificates the desktop app created, and vice versa. Se
 | --- | :---: | :---: |
 | Let's Encrypt issuance (ACME) | ✅ | ✅ |
 | HTTP-01 validation | ✅ | ✅ |
-| DNS-01 validation | ✅ | ✅ (Cloudflare, Manual) |
+| DNS-01 validation | ✅ | ✅ (Cloudflare, Route 53, Manual) |
 | Wildcard certificates | ✅ | ✅ |
 | Multi-domain (SAN) certs | ✅ | ✅ |
 | Install to Windows cert store | ✅ | ✅ |
@@ -157,12 +157,20 @@ run it from `powershell/`) — no build or install required. See
 ## DNS-01 and wildcards
 
 Choose **DNS-01** in the New Certificate wizard to validate via a TXT record —
-required for wildcard names like `*.example.com`. Two providers ship today:
+required for wildcard names like `*.example.com`. These providers ship today:
 
 - **Cloudflare** — paste an API token with `Zone:DNS:Edit`. Records are created
   and cleaned up automatically, so wildcard certs renew unattended.
+- **Route 53 (AWS)** — enter an access key ID + secret (and optionally a hosted
+  zone ID; otherwise the zone is auto-detected). Uses the Route 53 REST API with
+  AWS SigV4 signing — no AWS SDK — and waits for the change to reach `INSYNC`
+  before validation. The IAM key needs `route53:ListHostedZones`,
+  `route53:ChangeResourceRecordSets`, and `route53:GetChange`. Renews unattended.
 - **Manual** — the app shows the exact TXT record to create and waits for you to
   confirm (interactive only; the unattended renewer can't run manual DNS).
+
+Secrets (tokens/keys) are stored encrypted with Windows DPAPI. Azure DNS and
+Google Cloud DNS are planned next, using the same pluggable provider interface.
 
 ## Deployment tasks
 
@@ -371,7 +379,8 @@ from the repository root:
 
 - [x] Background Windows service with a system-tray companion
 - [x] Light/dark theme toggle
-- [ ] More DNS providers (Route 53, Azure DNS, Google Cloud DNS)
+- [x] Route 53 (AWS) DNS provider
+- [ ] More DNS providers (Azure DNS, Google Cloud DNS)
 - [ ] Additional ACME CAs (e.g. ZeroSSL, Buypass)
 - [ ] More deployment task types
 

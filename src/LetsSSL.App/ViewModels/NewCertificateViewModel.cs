@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
+using LetsSSL.Core.Dns;
 using LetsSSL.Core.Iis;
 using LetsSSL.Core.Models;
 using LetsSSL.Core.Storage;
@@ -171,6 +173,7 @@ public class NewCertificateViewModel : ViewModelBase
                 OnPropertyChanged(nameof(ShowDnsOptions));
                 OnPropertyChanged(nameof(ShowHttpOptions));
                 OnPropertyChanged(nameof(ShowCloudflareToken));
+                OnPropertyChanged(nameof(ShowRoute53Fields));
                 OnPropertyChanged(nameof(CanSubmit));
             }
         }
@@ -190,6 +193,7 @@ public class NewCertificateViewModel : ViewModelBase
             if (SetField(ref _selectedDnsProvider, value))
             {
                 OnPropertyChanged(nameof(ShowCloudflareToken));
+                OnPropertyChanged(nameof(ShowRoute53Fields));
                 OnPropertyChanged(nameof(CanSubmit));
             }
         }
@@ -202,9 +206,30 @@ public class NewCertificateViewModel : ViewModelBase
         set { if (SetField(ref _dnsApiToken, value)) OnPropertyChanged(nameof(CanSubmit)); }
     }
 
+    // ---- Route 53 (AWS) credentials ----
+
+    private string _awsAccessKeyId = string.Empty;
+    public string AwsAccessKeyId
+    {
+        get => _awsAccessKeyId;
+        set { if (SetField(ref _awsAccessKeyId, value)) OnPropertyChanged(nameof(CanSubmit)); }
+    }
+
+    private string _awsSecretAccessKey = string.Empty;
+    public string AwsSecretAccessKey
+    {
+        get => _awsSecretAccessKey;
+        set { if (SetField(ref _awsSecretAccessKey, value)) OnPropertyChanged(nameof(CanSubmit)); }
+    }
+
+    private string _awsHostedZoneId = string.Empty;
+    /// <summary>Optional; auto-discovered from the domain when left blank.</summary>
+    public string AwsHostedZoneId { get => _awsHostedZoneId; set => SetField(ref _awsHostedZoneId, value); }
+
     public bool ShowHttpOptions => !UseDns;
     public bool ShowDnsOptions => UseDns;
     public bool ShowCloudflareToken => UseDns && SelectedDnsProvider == DnsProviderType.Cloudflare;
+    public bool ShowRoute53Fields => UseDns && SelectedDnsProvider == DnsProviderType.Route53;
 
     // ---- HTTP web root ----
 
@@ -250,7 +275,13 @@ public class NewCertificateViewModel : ViewModelBase
             if (string.IsNullOrWhiteSpace(PrimaryDomain) || string.IsNullOrWhiteSpace(ContactEmail))
                 return false;
             if (UseDns)
-                return SelectedDnsProvider != DnsProviderType.Cloudflare || !string.IsNullOrWhiteSpace(DnsApiToken);
+                return SelectedDnsProvider switch
+                {
+                    DnsProviderType.Cloudflare => !string.IsNullOrWhiteSpace(DnsApiToken),
+                    DnsProviderType.Route53 => !string.IsNullOrWhiteSpace(AwsAccessKeyId)
+                                               && !string.IsNullOrWhiteSpace(AwsSecretAccessKey),
+                    _ => true, // Manual needs nothing here
+                };
             // HTTP-01 needs a place to write challenge files.
             return SelectedSites.Any() || !string.IsNullOrWhiteSpace(WebRootPath);
         }
@@ -294,7 +325,17 @@ public class NewCertificateViewModel : ViewModelBase
         {
             cert.DnsProvider = SelectedDnsProvider;
             if (SelectedDnsProvider == DnsProviderType.Cloudflare && !string.IsNullOrWhiteSpace(DnsApiToken))
+            {
                 cert.DnsCredentialProtected = SecretProtector.Protect(DnsApiToken.Trim());
+            }
+            else if (SelectedDnsProvider == DnsProviderType.Route53 && !string.IsNullOrWhiteSpace(AwsAccessKeyId))
+            {
+                var creds = new Route53Credentials(
+                    AwsAccessKeyId.Trim(),
+                    AwsSecretAccessKey.Trim(),
+                    string.IsNullOrWhiteSpace(AwsHostedZoneId) ? null : AwsHostedZoneId.Trim());
+                cert.DnsCredentialProtected = SecretProtector.Protect(JsonSerializer.Serialize(creds));
+            }
         }
 
         if (ExportPfxEnabled && !string.IsNullOrWhiteSpace(ExportPfxPath))

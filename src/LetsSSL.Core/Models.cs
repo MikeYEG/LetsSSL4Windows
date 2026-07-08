@@ -51,6 +51,8 @@ public enum DnsProviderType
     Manual = 0,
     /// <summary>Cloudflare DNS via API token.</summary>
     Cloudflare = 1,
+    /// <summary>Amazon Route 53 via access key + secret (AWS SigV4).</summary>
+    Route53 = 2,
 }
 
 /// <summary>The kind of action run after a certificate is issued.</summary>

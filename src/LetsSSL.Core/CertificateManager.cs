@@ -142,6 +142,8 @@ public class CertificateManager
             SecretProtector.Unprotect(config.DnsCredentialProtected)
                 ?? throw new InvalidOperationException("A Cloudflare API token is required.")),
 
+        DnsProviderType.Route53 => BuildRoute53Provider(config),
+
         DnsProviderType.Manual => _manualDns is not null
             ? new ManualDnsProvider(_manualDns)
             : throw new InvalidOperationException(
@@ -150,6 +152,15 @@ public class CertificateManager
 
         _ => throw new NotSupportedException($"Unknown DNS provider: {config.DnsProvider}"),
     };
+
+    private static Route53DnsProvider BuildRoute53Provider(ManagedCertificate config)
+    {
+        var json = SecretProtector.Unprotect(config.DnsCredentialProtected)
+            ?? throw new InvalidOperationException("Route 53 credentials are required.");
+        var creds = System.Text.Json.JsonSerializer.Deserialize<Route53Credentials>(json)
+            ?? throw new InvalidOperationException("Route 53 credentials could not be read.");
+        return new Route53DnsProvider(creds.AccessKeyId, creds.SecretAccessKey, creds.HostedZoneId);
+    }
 
     /// <summary>The IIS sites a certificate should bind to (the list, or the single legacy name).</summary>
     private static IReadOnlyList<string> EffectiveSites(ManagedCertificate config)

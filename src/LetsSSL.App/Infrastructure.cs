@@ -26,6 +26,24 @@ namespace LetsSSL.App.Converters
         public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture) =>
             throw new NotSupportedException();
     }
+
+    /// <summary>Friendly display names for the DnsProviderType enum in the wizard dropdown.</summary>
+    public class DnsProviderNameConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object? parameter, CultureInfo culture) =>
+            value is LetsSSL.Core.Models.DnsProviderType p
+                ? p switch
+                {
+                    LetsSSL.Core.Models.DnsProviderType.Cloudflare => "Cloudflare",
+                    LetsSSL.Core.Models.DnsProviderType.Route53 => "Route 53 (AWS)",
+                    LetsSSL.Core.Models.DnsProviderType.Manual => "Manual (create the record yourself)",
+                    _ => p.ToString(),
+                }
+                : value?.ToString() ?? string.Empty;
+
+        public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture) =>
+            Binding.DoNothing;
+    }
 }
 
 namespace LetsSSL.App.Controls
