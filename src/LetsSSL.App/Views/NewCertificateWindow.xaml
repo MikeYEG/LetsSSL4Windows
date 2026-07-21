@@ -192,6 +192,14 @@
                           Margin="0,6,0,0" VerticalContentAlignment="Center"
                           ToolTip="Lets the renewal service/agent reissue this certificate automatically before it expires (default: 30 days before)." />
 
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,4">
+                    <TextBlock Text="Certificate name in IIS (friendly name) — optional" FontWeight="SemiBold" />
+                    <TextBlock Style="{StaticResource InfoGlyph}"
+                               ToolTip="A friendly name for the certificate as it appears in IIS's Server Certificates list. Leave blank to let IIS show the subject. Reapplied on every renewal." />
+                </StackPanel>
+                <TextBox Text="{Binding FriendlyName, UpdateSourceTrigger=PropertyChanged}"
+                         ctl:Placeholder.Text="e.g. www.example.com (Let's Encrypt)" />
+
                 <!-- Deployment tasks -->
                 <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}"
                         BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,16,0,0">

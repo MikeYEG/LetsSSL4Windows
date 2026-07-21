@@ -183,10 +183,15 @@ public class WindowsCertificateStore
     /// <summary>The store name as IIS expects it (e.g. "MY").</summary>
     public string StoreNameForIis => _storeName.ToString().ToUpperInvariant();
 
-    public X509Certificate2 ImportPfx(byte[] pfxBytes, string password, bool removeOlderWithSameSubject = true)
+    public X509Certificate2 ImportPfx(byte[] pfxBytes, string password, string? friendlyName = null, bool removeOlderWithSameSubject = true)
     {
         var cert = new X509Certificate2(pfxBytes, password,
             X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable);
+
+        // The friendly name is what IIS shows in its Server Certificates list.
+        // Setting it before adding to the store makes it persist with the cert.
+        if (!string.IsNullOrWhiteSpace(friendlyName))
+            cert.FriendlyName = friendlyName;
 
         using var store = new X509Store(_storeName, _storeLocation);
         store.Open(OpenFlags.ReadWrite);
