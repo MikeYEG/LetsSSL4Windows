@@ -245,6 +245,13 @@ public class NewCertificateViewModel : ViewModelBase
     private bool _bindToIis = true;
     public bool BindToIis { get => _bindToIis; set => SetField(ref _bindToIis, value); }
 
+    /// <summary>
+    /// Optional friendly name for the certificate in the Windows store, shown in
+    /// IIS's Server Certificates list. Blank leaves it unset.
+    /// </summary>
+    private string _friendlyName = string.Empty;
+    public string FriendlyName { get => _friendlyName; set => SetField(ref _friendlyName, value); }
+
     private bool _autoRenew = true;
     public bool AutoRenew { get => _autoRenew; set => SetField(ref _autoRenew, value); }
 
@@ -319,6 +326,7 @@ public class NewCertificateViewModel : ViewModelBase
             WebRootPath = string.IsNullOrWhiteSpace(WebRootPath) ? null : WebRootPath.Trim(),
             BindToIis = BindToIis && selectedSites.Count > 0,
             AutoRenew = AutoRenew,
+            FriendlyName = string.IsNullOrWhiteSpace(FriendlyName) ? null : FriendlyName.Trim(),
         };
 
         if (UseDns)

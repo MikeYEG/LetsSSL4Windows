@@ -143,6 +143,13 @@ public class ManagedCertificate
     public string? IisSiteName { get; set; }
     /// <summary>All IIS sites the certificate should be bound to.</summary>
     public List<string> IisSiteNames { get; set; } = new();
+    /// <summary>
+    /// Optional friendly name applied to the certificate in the Windows store, so
+    /// it appears with a recognisable label in IIS's Server Certificates list.
+    /// When blank, no friendly name is set (IIS falls back to the subject/issuer).
+    /// Applied on every issuance and renewal.
+    /// </summary>
+    public string? FriendlyName { get; set; }
     public string? WebRootPath { get; set; }
     public bool BindToIis { get; set; } = true;
     public bool AutoRenew { get; set; } = true;

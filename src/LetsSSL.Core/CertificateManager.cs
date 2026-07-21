@@ -68,7 +68,7 @@ public class CertificateManager
             var result = await _acme.RequestCertificateAsync(config, environment, handler, progress, ct);
 
             progress?.Report("Installing certificate into the Windows store…");
-            var installed = _store.ImportPfx(result.PfxBytes, result.PfxPassword);
+            var installed = _store.ImportPfx(result.PfxBytes, result.PfxPassword, config.FriendlyName);
 
             // Save the PFX alongside our data so it can be re-deployed if needed.
             var pfxPath = _paths.PfxFileFor(config.Id);

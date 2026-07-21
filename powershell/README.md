@@ -84,9 +84,9 @@ Drive any single action with `-Command <verb>` — ideal for automation:
 .\LetsSSL4Windows.ps1 -Command List
 .\LetsSSL4Windows.ps1 -Command Show -Id www.example.com
 
-# HTTP-01 + bind to IIS
+# HTTP-01 + bind to IIS (optionally name it in IIS with -FriendlyName)
 .\LetsSSL4Windows.ps1 -Command New -Domain www.example.com -SAN example.com `
-    -ChallengeType Http01 -IisSite "Default Web Site"
+    -ChallengeType Http01 -IisSite "Default Web Site" -FriendlyName "www.example.com (Let's Encrypt)"
 
 # DNS-01 wildcard via Cloudflare
 .\LetsSSL4Windows.ps1 -Command New -Domain *.example.com -SAN example.com `

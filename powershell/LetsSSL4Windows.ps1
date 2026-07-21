@@ -75,6 +75,7 @@ param(
     [string]$DnsCredential,          # e.g. a Cloudflare API token
     [string]$IisSite,
     [string]$WebRoot,
+    [string]$FriendlyName,           # name shown for the certificate in IIS
     [switch]$NoBind,
     [switch]$NoAutoRenew,
     [int]$RenewalDays = 30,
@@ -344,6 +345,7 @@ function New-ManagedCertificate {
         DnsCredentialProtected   = $null
         DeploymentTasks          = @()
         IisSiteName              = $null
+        FriendlyName             = $null
         WebRootPath              = $null
         BindToIis                = $true
         AutoRenew                = $true
@@ -505,7 +507,8 @@ function Import-CertToStore {
     # the same subject (mirrors the C# WindowsCertificateStore behaviour).
     param(
         [Parameter(Mandatory)][string]$PfxPath,
-        [Parameter(Mandatory)][string]$Password
+        [Parameter(Mandatory)][string]$Password,
+        [string]$FriendlyName
     )
     $secure = ConvertTo-SecureString -String $Password -AsPlainText -Force
     $imported = @(Import-PfxCertificate -FilePath $PfxPath `
@@ -514,6 +517,16 @@ function Import-CertToStore {
     # A full-chain PFX imports the leaf plus chain certs; pick the leaf (has the key).
     $installed = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
     if (-not $installed) { $installed = $imported | Select-Object -First 1 }
+
+    # Set the friendly name on the store entry so IIS shows it with a recognisable
+    # label in its Server Certificates list. Setting it via the Cert: provider
+    # persists the change to the store.
+    if (-not [string]::IsNullOrWhiteSpace($FriendlyName)) {
+        try {
+            $storeItem = Get-Item -LiteralPath ("Cert:\LocalMachine\My\{0}" -f $installed.Thumbprint) -ErrorAction Stop
+            $storeItem.FriendlyName = $FriendlyName
+        } catch { Write-Log "Could not set the certificate friendly name: $($_.Exception.Message)" 'WARN' }
+    }
 
     # Remove older certs sharing the subject but with an earlier/equal expiry.
     try {
@@ -818,7 +831,8 @@ function Invoke-RequestAndDeploy {
         if (-not $sourcePfx -or -not (Test-Path $sourcePfx)) { throw "Posh-ACME did not return a PFX file." }
 
         Write-Log "Installing certificate into LocalMachine\My..." 'STEP'
-        $installed = Import-CertToStore -PfxPath $sourcePfx -Password $pfxPass
+        $friendlyName = Get-PropValue -Obj $Cert -Name 'FriendlyName'
+        $installed = Import-CertToStore -PfxPath $sourcePfx -Password $pfxPass -FriendlyName $friendlyName
 
         # Persist a copy of the PFX in our store.
         $destPfx = Join-Path $PfxDir ("{0}.pfx" -f $Cert.Id)
@@ -1120,6 +1134,7 @@ function Show-CertificateDetail {
         Write-Host "    DNS provider    : $(if ([int]$Cert.DnsProvider -eq $Script:Dns_Cloudflare) { 'Cloudflare' } else { 'Manual' })"
     }
     Write-Host "    IIS site        : $(if ($Cert.IisSiteName) { $Cert.IisSiteName } else { '-' })"
+    Write-Host "    IIS friendly name: $(if (-not [string]::IsNullOrWhiteSpace((Get-PropValue -Obj $Cert -Name 'FriendlyName'))) { $Cert.FriendlyName } else { '-' })"
     Write-Host "    Bind to IIS     : $($Cert.BindToIis)"
     Write-Host "    Auto-renew      : $($Cert.AutoRenew) (within $($Cert.RenewalDaysBeforeExpiry) days)"
     Write-Host "    Status          : $st"
@@ -1213,6 +1228,10 @@ function Invoke-NewCertificateWizard {
     } else {
         $cert.BindToIis = $false
     }
+
+    # Friendly name shown in IIS's Server Certificates list (optional).
+    $friendly = Read-Default -Prompt '  Certificate name in IIS (friendly name, optional)'
+    if (-not [string]::IsNullOrWhiteSpace($friendly)) { $cert.FriendlyName = $friendly.Trim() }
 
     $cert.AutoRenew = Read-YesNo -Prompt '  Enable automatic renewal?' -Default $true
 
@@ -1426,6 +1445,7 @@ LetsSSL4Windows (PowerShell edition)
     -ChallengeType Http01|Dns01
     -DnsProvider Manual|Cloudflare -DnsCredential <token>
     -IisSite <name> | -WebRoot <path>
+    -FriendlyName <text>   Name shown for the certificate in IIS
     -NoBind  -NoAutoRenew  -RenewalDays <n>
 
   Data store: %ProgramData%\$($Script:AppName)
@@ -1458,6 +1478,7 @@ function Invoke-NewFromParams {
         if ($IisSite) { $cert.IisSiteName = $IisSite }
     }
     if ($IisSite) { $cert.IisSiteName = $IisSite }
+    if ($FriendlyName) { $cert.FriendlyName = $FriendlyName.Trim() }
     $cert.BindToIis = (-not $NoBind) -and [bool]$cert.IisSiteName
 
     Set-Certificate -Certificate $cert
