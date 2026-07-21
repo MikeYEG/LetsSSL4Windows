@@ -22,6 +22,10 @@ internal static class ServiceInstaller
         var exe = Environment.ProcessPath
             ?? throw new InvalidOperationException("Unable to determine executable path.");
 
+        // Register the Event Log source now, while we're elevated, so the service
+        // (and the GUI) can write to Event Viewer without needing admin at run time.
+        AppLogging.EnsureEventSource();
+
         Console.WriteLine($"Installing service \"{DisplayName}\"…");
         var create = Run("sc.exe",
             $"create {ServiceName} binPath= \"\\\"{exe}\\\" --service\" start= auto DisplayName= \"{DisplayName}\"");

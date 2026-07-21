@@ -42,6 +42,12 @@ one store: `%ProgramData%\LetsSSL4Windows` (`appsettings.json`,
 live in `%ProgramData%\LetsSSL4Windows\posh-acme` so the SYSTEM scheduled task
 and your interactive session use the same account.
 
+Activity is also written to the **Windows Event Log** (Event Viewer → Windows
+Logs → Application, source **`LetsSSL4Windows`**) in addition to the monthly
+`logs\activity-*.log` file. The event source is registered automatically the
+first time the script runs elevated (creating it needs administrator rights); if
+it can't be created, logging falls back to the file/console only.
+
 ## Requirements
 
 - Windows 10/11 or Windows Server 2016+

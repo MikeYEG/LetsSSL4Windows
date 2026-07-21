@@ -24,7 +24,7 @@ public partial class MainWindow : Window
         // Supply the interactive manual-DNS handler so DNS-01 with the "Manual"
         // provider can prompt the user from the desktop app.
         var manualDns = new DialogManualDnsInteraction();
-        _services = new LetsSslServices(manualDns: manualDns);
+        _services = new LetsSslServices(AppLogging.Factory, manualDns: manualDns);
         _vm = new MainViewModel(_services);
         DataContext = _vm;
 

@@ -370,6 +370,11 @@ from the repository root:
 - State lives in `%ProgramData%\LetsSSL4Windows`: `appsettings.json`,
   `certificates.json`, the ACME account key (`accounts/`), saved PFXs (`pfx/`),
   and logs.
+- Activity is written to the **Windows Event Log** — open **Event Viewer →
+  Windows Logs → Application** and filter by the **`LetsSSL4Windows`** source to
+  see issuance, renewal, binding, and error events from the GUI, tray, and the
+  renewal service. The event source is registered on first elevated run (and by
+  the service installer). Both editions log to this source.
 - DNS API tokens and SMTP passwords are encrypted with Windows DPAPI (LocalMachine
   scope) so the SYSTEM renewal service can also read them.
 - Private keys are imported into the machine store as exportable; restrict access

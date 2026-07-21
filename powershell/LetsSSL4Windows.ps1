@@ -115,6 +115,12 @@ $Script:CertsFile     = Join-Path $RootDir 'certificates.json'
 $Script:LastRunFile   = Join-Path $RootDir 'lastrun.json'
 $Script:TaskName      = 'LetsSSL4Windows Renewal'
 
+# Windows Event Log (Event Viewer) target. Entries appear under Windows Logs >
+# Application with this source. $EventSourceReady is resolved lazily on first use.
+$Script:EventLogName    = 'Application'
+$Script:EventLogSource  = 'LetsSSL4Windows'
+$Script:EventSourceReady = $null
+
 # Enum maps mirror the C# app's numeric JSON serialization for interop.
 $Script:Env_Staging = 0; $Script:Env_Production = 1
 $Script:Ch_Http01   = 0; $Script:Ch_Dns01      = 1
@@ -135,6 +141,22 @@ function Initialize-Paths {
     }
 }
 
+function Initialize-EventLogSource {
+    # Registers the Event Log source once (needs admin). Cached so it's attempted
+    # only once per run; returns $true when writing to the event log is possible.
+    if ($null -ne $Script:EventSourceReady) { return $Script:EventSourceReady }
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists($Script:EventLogSource)) {
+            [System.Diagnostics.EventLog]::CreateEventSource($Script:EventLogSource, $Script:EventLogName)
+        }
+        $Script:EventSourceReady = $true
+    } catch {
+        # Requires administrator rights to create the source; log to file/console only.
+        $Script:EventSourceReady = $false
+    }
+    return $Script:EventSourceReady
+}
+
 function Write-Log {
     param(
         [Parameter(Mandatory)][string]$Message,
@@ -145,6 +167,16 @@ function Write-Log {
     try {
         $logFile = Join-Path $LogsDir ("activity-{0}.log" -f (Get-Date -Format 'yyyyMM'))
         Add-Content -LiteralPath $logFile -Value $line -ErrorAction SilentlyContinue
+    } catch { }
+
+    # Mirror to the Windows Event Log so activity is visible in Event Viewer.
+    try {
+        if (Initialize-EventLogSource) {
+            $entryType = switch ($Level) { 'ERROR' { 'Error' } 'WARN' { 'Warning' } default { 'Information' } }
+            $eventId   = switch ($Level) { 'ERROR' { 1001 }    'WARN' { 1002 }     default { 1000 } }
+            Write-EventLog -LogName $Script:EventLogName -Source $Script:EventLogSource `
+                -EntryType $entryType -EventId $eventId -Message $Message -ErrorAction SilentlyContinue
+        }
     } catch { }
 
     if ($Unattended) { Write-Output $line; return }

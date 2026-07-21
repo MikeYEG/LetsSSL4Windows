@@ -30,7 +30,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     public TrayApplicationContext()
     {
-        _services = new LetsSslServices();
+        _services = new LetsSslServices(AppLogging.Factory);
 
         _statusItem = new ToolStripMenuItem("Loading…") { Enabled = false };
         var openItem = new ToolStripMenuItem("Open LetsSSL4Windows", null, (_, _) => OpenApp());

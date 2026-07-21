@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace LetsSSL.App.Service;
 
@@ -12,6 +13,13 @@ internal static class ServiceHost
     {
         var builder = Host.CreateApplicationBuilder(args);
         builder.Services.AddWindowsService(options => options.ServiceName = ServiceInstaller.DisplayName);
+
+        // AddWindowsService adds its own Event Log provider (default source = the
+        // app name, level Warning). Replace it with the shared LetsSSL4Windows
+        // source so service activity shows up next to the GUI's in Event Viewer.
+        builder.Logging.ClearProviders();
+        AppLogging.Configure(builder.Logging);
+
         builder.Services.AddHostedService<RenewalWorker>();
         builder.Build().Run();
     }
