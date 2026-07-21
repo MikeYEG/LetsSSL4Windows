@@ -20,13 +20,15 @@ internal static class AppLogging
     /// <summary>The event log the source writes to.</summary>
     public const string EventLogName = "Application";
 
-    private static ILoggerFactory? _factory;
+    // Lazy with the default (thread-safe) mode guarantees the factory — and thus
+    // the Event Log provider — is created exactly once even under concurrent access.
+    private static readonly Lazy<ILoggerFactory> LazyFactory = new(CreateFactory);
 
     /// <summary>
     /// Shared, app-lifetime logger factory for the GUI and tray. Created once and
     /// reused so a single Event Log provider is registered per process.
     /// </summary>
-    public static ILoggerFactory Factory => _factory ??= CreateFactory();
+    public static ILoggerFactory Factory => LazyFactory.Value;
 
     /// <summary>
     /// Ensures the event source exists so log writes succeed, returning whether it

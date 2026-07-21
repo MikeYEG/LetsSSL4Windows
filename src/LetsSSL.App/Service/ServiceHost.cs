@@ -12,7 +12,9 @@ internal static class ServiceHost
     public static void Run(string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
-        builder.Services.AddWindowsService(options => options.ServiceName = ServiceInstaller.DisplayName);
+        // Use the SCM internal service name (the one sc.exe registered), not the
+        // display name, so the hosted ServiceBase.ServiceName matches.
+        builder.Services.AddWindowsService(options => options.ServiceName = ServiceInstaller.ServiceName);
 
         // AddWindowsService adds its own Event Log provider (default source = the
         // app name, level Warning). Replace it with the shared LetsSSL4Windows

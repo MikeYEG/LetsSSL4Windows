@@ -24,7 +24,9 @@ internal static class ServiceInstaller
 
         // Register the Event Log source now, while we're elevated, so the service
         // (and the GUI) can write to Event Viewer without needing admin at run time.
-        AppLogging.EnsureEventSource();
+        if (!AppLogging.EnsureEventSource())
+            Console.WriteLine("Warning: could not register the 'LetsSSL4Windows' Event Log source; " +
+                              "Event Viewer logging may be unavailable until it can be created.");
 
         Console.WriteLine($"Installing service \"{DisplayName}\"…");
         var create = Run("sc.exe",
