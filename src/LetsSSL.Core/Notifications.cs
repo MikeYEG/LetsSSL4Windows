@@ -112,7 +112,7 @@ public sealed class NotificationService
     /// </param>
     public async Task NotifyIssuanceResultAsync(
         ManagedCertificate cert, bool success, string? error,
-        CancellationToken ct = default, IReadOnlyList<string>? warnings = null)
+        IReadOnlyList<string>? warnings = null, CancellationToken ct = default)
     {
         var hasWarnings = warnings is { Count: > 0 };
         var settings = _settings.Load().Notifications;

@@ -58,7 +58,9 @@ public sealed class RemoteIisDeployer
     /// <summary>
     /// Pre-flight: opens a WinRM session to the target (as the current identity)
     /// and lists its IIS sites, so the user can confirm reachability, auth, and
-    /// the exact remote site names before saving. Never throws.
+    /// the exact remote site names before saving. Returns a failure result rather
+    /// than throwing, except that a cancelled <paramref name="ct"/> propagates as
+    /// <see cref="OperationCanceledException"/>.
     /// </summary>
     public async Task<RemoteConnectionTest> TestConnectionAsync(RemoteIisTarget target, CancellationToken ct = default)
     {
@@ -84,17 +86,25 @@ public sealed class RemoteIisDeployer
 
             using var process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Failed to start powershell.exe.");
-            var stdout = await process.StandardOutput.ReadToEndAsync(ct);
-            var stderr = await process.StandardError.ReadToEndAsync(ct);
+            // Read both streams concurrently so a full stderr/stdout buffer can't deadlock.
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
+            var stderrTask = process.StandardError.ReadToEndAsync(ct);
+            await Task.WhenAll(stdoutTask, stderrTask);
             await process.WaitForExitAsync(ct);
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
 
             if (process.ExitCode == 0)
             {
-                var sites = stdout
+                // The script prints an "OK" marker line, then one site per line. Drop
+                // only the leading marker so a site legitimately named "OK" survives.
+                var lines = stdout
                     .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                     .Select(s => s.Trim())
-                    .Where(s => s.Length > 0 && s != "OK")
+                    .Where(s => s.Length > 0)
                     .ToList();
+                if (lines.Count > 0 && lines[0] == "OK") lines.RemoveAt(0);
+                var sites = lines;
                 var msg = sites.Count > 0
                     ? $"Connected to {target.Host}. Remote IIS sites: {string.Join(", ", sites)}"
                     : $"Connected to {target.Host}, but no IIS sites were found (is IIS installed?).";
@@ -144,9 +154,13 @@ public sealed class RemoteIisDeployer
 
             using var process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Failed to start powershell.exe for remote deployment.");
-            var stdout = await process.StandardOutput.ReadToEndAsync(ct);
-            var stderr = await process.StandardError.ReadToEndAsync(ct);
+            // Read both streams concurrently so a full stderr/stdout buffer can't deadlock.
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
+            var stderrTask = process.StandardError.ReadToEndAsync(ct);
+            await Task.WhenAll(stdoutTask, stderrTask);
             await process.WaitForExitAsync(ct);
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
 
             if (process.ExitCode == 0)
             {

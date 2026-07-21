@@ -670,7 +670,14 @@ function ConvertTo-RemoteIisTarget {
     }
     $sites = @()
     if ($map.ContainsKey('sites')) { $sites = @($map['sites'] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
-    $port  = if ($map.ContainsKey('port')) { [int]$map['port'] } else { 5986 }
+    $port = 5986
+    if ($map.ContainsKey('port')) {
+        $parsed = 0
+        if (-not [int]::TryParse($map['port'], [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt 65535) {
+            throw "Invalid port '$($map['port'])' in -RemoteTarget spec (expected 1-65535)."
+        }
+        $port = $parsed
+    }
     $useSsl = if ($map.ContainsKey('ssl')) { $map['ssl'] -in @('1','true','yes') } else { $true }
     New-RemoteIisTarget -HostName $map['host'] -WinRmPort $port -UseSsl $useSsl -SiteNames $sites
 }

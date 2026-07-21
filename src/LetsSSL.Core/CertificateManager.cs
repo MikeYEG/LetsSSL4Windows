@@ -113,8 +113,8 @@ public class CertificateManager
                     .Where(t => !string.IsNullOrEmpty(t.LastError))
                     .Select(t => $"{t.Host}: {t.LastError}")
                     .ToList();
-                await _notifications.NotifyIssuanceResultAsync(config, success: true, error: null, ct,
-                    warnings: remoteFailures.Count > 0 ? remoteFailures : null);
+                await _notifications.NotifyIssuanceResultAsync(config, success: true, error: null,
+                    warnings: remoteFailures.Count > 0 ? remoteFailures : null, ct: ct);
             }
 
             return config;
@@ -127,7 +127,7 @@ public class CertificateManager
             progress?.Report($"Error: {ex.Message}");
 
             if (_notifications is not null)
-                await _notifications.NotifyIssuanceResultAsync(config, success: false, ex.Message, CancellationToken.None);
+                await _notifications.NotifyIssuanceResultAsync(config, success: false, ex.Message, ct: CancellationToken.None);
 
             throw;
         }
