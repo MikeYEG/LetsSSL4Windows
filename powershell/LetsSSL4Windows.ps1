@@ -1134,7 +1134,7 @@ function Show-CertificateDetail {
         Write-Host "    DNS provider    : $(if ([int]$Cert.DnsProvider -eq $Script:Dns_Cloudflare) { 'Cloudflare' } else { 'Manual' })"
     }
     Write-Host "    IIS site        : $(if ($Cert.IisSiteName) { $Cert.IisSiteName } else { '-' })"
-    Write-Host "    IIS friendly name: $(if (Get-PropValue -Obj $Cert -Name 'FriendlyName') { $Cert.FriendlyName } else { '-' })"
+    Write-Host "    IIS friendly name: $(if (-not [string]::IsNullOrWhiteSpace((Get-PropValue -Obj $Cert -Name 'FriendlyName'))) { $Cert.FriendlyName } else { '-' })"
     Write-Host "    Bind to IIS     : $($Cert.BindToIis)"
     Write-Host "    Auto-renew      : $($Cert.AutoRenew) (within $($Cert.RenewalDaysBeforeExpiry) days)"
     Write-Host "    Status          : $st"
