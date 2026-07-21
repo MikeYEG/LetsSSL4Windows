@@ -220,6 +220,7 @@
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="80" />
                                                     <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
                                                 <TextBox Grid.Column="0" VerticalContentAlignment="Center"
                                                          Text="{Binding Host, UpdateSourceTrigger=PropertyChanged}"
@@ -227,7 +228,11 @@
                                                 <TextBox Grid.Column="1" Margin="8,0,0,0" VerticalContentAlignment="Center"
                                                          Text="{Binding WinRmPort, UpdateSourceTrigger=PropertyChanged}"
                                                          ToolTip="WinRM port (5986 for HTTPS, 5985 for HTTP)." />
-                                                <Button Grid.Column="2" Content="Remove" Style="{StaticResource SecondaryButton}"
+                                                <Button Grid.Column="2" Content="Test" Style="{StaticResource SecondaryButton}"
+                                                        Margin="8,0,0,0" Click="OnTestRemoteTarget"
+                                                        IsEnabled="{Binding IsTesting, Converter={StaticResource InverseBool}}"
+                                                        ToolTip="Connect over WinRM and list the remote IIS sites." />
+                                                <Button Grid.Column="3" Content="Remove" Style="{StaticResource SecondaryButton}"
                                                         Margin="8,0,0,0" Click="OnRemoveRemoteTarget" />
                                             </Grid>
                                             <TextBox Margin="0,6,0,0"
@@ -235,6 +240,9 @@
                                                      ctl:Placeholder.Text="Remote IIS site(s), comma-separated — e.g. Default Web Site, api" />
                                             <CheckBox Content="WinRM over HTTPS (recommended)" IsChecked="{Binding UseSsl}"
                                                       Margin="0,6,0,0" VerticalContentAlignment="Center" />
+                                            <TextBlock Text="{Binding TestStatus}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                                       FontSize="11" Foreground="{StaticResource TextMuted}"
+                                                       Visibility="{Binding TestStatus, Converter={StaticResource NonEmptyToVis}}" />
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>

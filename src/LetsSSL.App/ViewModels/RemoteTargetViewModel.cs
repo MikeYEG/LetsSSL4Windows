@@ -33,6 +33,17 @@ public class RemoteTargetViewModel : ViewModelBase
     /// <summary>True once the row has a host name worth persisting.</summary>
     public bool HasHost => !string.IsNullOrWhiteSpace(Host);
 
+    // ---- WinRM connection test state (set by the dialog) ----
+
+    private bool _isTesting;
+    public bool IsTesting { get => _isTesting; set => SetField(ref _isTesting, value); }
+
+    private string _testStatus = string.Empty;
+    public string TestStatus { get => _testStatus; set => SetField(ref _testStatus, value); }
+
+    private bool _testSucceeded;
+    public bool TestSucceeded { get => _testSucceeded; set => SetField(ref _testSucceeded, value); }
+
     /// <summary>Builds the model, or null when the row has no host name.</summary>
     public RemoteIisTarget? ToModel()
     {

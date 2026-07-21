@@ -87,4 +87,20 @@ public class RemoteIisTargetTests
         Assert.Equal(string.Empty, env["LSW_SITES"]);
         Assert.Equal(string.Empty, env["LSW_DOMAINS"]);
     }
+
+    [Fact]
+    public void Orchestration_script_uses_remoting_and_reads_env()
+    {
+        Assert.Contains("Invoke-Command", RemoteIisDeployer.OrchestrationScript);
+        Assert.Contains("Import-PfxCertificate", RemoteIisDeployer.OrchestrationScript);
+        Assert.Contains("$env:LSW_HOST", RemoteIisDeployer.OrchestrationScript);
+    }
+
+    [Fact]
+    public void Test_script_lists_remote_sites()
+    {
+        Assert.Contains("Invoke-Command", RemoteIisDeployer.TestScript);
+        Assert.Contains("Get-Website", RemoteIisDeployer.TestScript);
+        Assert.Contains("'OK'", RemoteIisDeployer.TestScript);
+    }
 }

@@ -106,7 +106,16 @@ public class CertificateManager
             progress?.Report("Done.");
 
             if (_notifications is not null)
-                await _notifications.NotifyIssuanceResultAsync(config, success: true, error: null, ct);
+            {
+                // Remote-deployment failures don't fail the issuance (the local
+                // install succeeded), but they are surfaced as notification warnings.
+                var remoteFailures = config.RemoteTargets
+                    .Where(t => !string.IsNullOrEmpty(t.LastError))
+                    .Select(t => $"{t.Host}: {t.LastError}")
+                    .ToList();
+                await _notifications.NotifyIssuanceResultAsync(config, success: true, error: null, ct,
+                    warnings: remoteFailures.Count > 0 ? remoteFailures : null);
+            }
 
             return config;
         }

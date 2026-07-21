@@ -7,6 +7,7 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <conv:InverseBooleanConverter x:Key="InverseBool" />
         <conv:EmptyStringToVisibilityConverter x:Key="EmptyToVis" />
+        <conv:NonEmptyStringToVisibilityConverter x:Key="NonEmptyToVis" />
         <conv:DnsProviderNameConverter x:Key="DnsProviderName" />
 
         <!-- ===== Dark theme palette (default) ===== -->

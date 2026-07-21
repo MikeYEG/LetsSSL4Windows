@@ -859,14 +859,23 @@ function Send-IssuanceNotification {
     param(
         [Parameter(Mandatory)]$Cert,
         [Parameter(Mandatory)][bool]$Success,
-        [string]$ErrorMessage
+        [string]$ErrorMessage,
+        [string[]]$Warnings   # non-fatal problems (e.g. failed remote deployments)
     )
     $settings = (Get-Settings).Notifications
-    if ($Success -and -not $settings.NotifyOnSuccess) { return }
+    $hasWarnings = @($Warnings).Count -gt 0
+    # A success carrying warnings is a partial failure: gate it on NotifyOnFailure.
+    if ($Success -and -not $hasWarnings -and -not $settings.NotifyOnSuccess) { return }
+    if ($Success -and $hasWarnings -and -not $settings.NotifyOnFailure) { return }
     if (-not $Success -and -not $settings.NotifyOnFailure) { return }
 
     $domains = (Get-AllDomains -Cert $Cert) -join ', '
-    if ($Success) {
+    if ($Success -and $hasWarnings) {
+        $detail  = ($Warnings | ForEach-Object { "  - $_" }) -join "`n"
+        $subject = "Certificate issued for $($Cert.PrimaryDomain), but $(@($Warnings).Count) remote deployment(s) FAILED"
+        $body    = "A certificate for $domains was issued/renewed and installed locally, but the " +
+                   "following remote deployment(s) failed:`n$detail`n`nValid until: $($Cert.NotAfter)`nThumbprint: $($Cert.Thumbprint)"
+    } elseif ($Success) {
         $subject = "Certificate issued for $($Cert.PrimaryDomain)"
         $body    = "A certificate for $domains was issued/renewed successfully.`n" +
                    "Valid until: $($Cert.NotAfter)`nThumbprint: $($Cert.Thumbprint)"
@@ -874,7 +883,7 @@ function Send-IssuanceNotification {
         $subject = "Certificate renewal FAILED for $($Cert.PrimaryDomain)"
         $body    = "Issuance/renewal for $domains failed.`nError: $(if ($ErrorMessage) { $ErrorMessage } else { 'unknown error' })"
     }
-    $statusText = if ($Success) { 'success' } else { 'failure' }
+    $statusText = if ($Success -and -not $hasWarnings) { 'success' } else { 'failure' }
 
     # Webhook
     if (-not [string]::IsNullOrWhiteSpace($settings.WebhookUrl)) {
@@ -997,6 +1006,7 @@ function Invoke-RequestAndDeploy {
 
         # Distribute to remote IIS servers (single source of truth: this instance
         # renews and pushes to each target). One failure never blocks the others.
+        $remoteWarnings = @()
         foreach ($rt in @(Get-PropValue -Obj $Cert -Name 'RemoteTargets')) {
             if (-not $rt) { continue }
             try {
@@ -1005,6 +1015,7 @@ function Invoke-RequestAndDeploy {
                 $rt.LastError = $null
             } catch {
                 $rt.LastError = $_.Exception.Message
+                $remoteWarnings += "$($rt.Host): $($rt.LastError)"
                 Write-Log "Remote deployment to $($rt.Host) failed: $($rt.LastError)" 'ERROR'
             }
         }
@@ -1016,7 +1027,7 @@ function Invoke-RequestAndDeploy {
 
         Set-Certificate -Certificate $Cert
         Write-Log "Certificate for $($Cert.PrimaryDomain) is ready (expires $($Cert.NotAfter))." 'OK'
-        Send-IssuanceNotification -Cert $Cert -Success $true
+        Send-IssuanceNotification -Cert $Cert -Success $true -Warnings $remoteWarnings
         return $Cert
     } catch {
         $msg = $_.Exception.Message

@@ -27,6 +27,16 @@ namespace LetsSSL.App.Converters
             throw new NotSupportedException();
     }
 
+    /// <summary>Shows an element only when the bound string is non-empty.</summary>
+    public class NonEmptyStringToVisibilityConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object? parameter, CultureInfo culture) =>
+            string.IsNullOrEmpty(value as string) ? Visibility.Collapsed : Visibility.Visible;
+
+        public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture) =>
+            throw new NotSupportedException();
+    }
+
     /// <summary>Friendly display names for the DnsProviderType enum in the wizard dropdown.</summary>
     public class DnsProviderNameConverter : IValueConverter
     {

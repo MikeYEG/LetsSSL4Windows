@@ -8,6 +8,9 @@ namespace LetsSSL.Core.Iis;
 /// <summary>Outcome of distributing a certificate to one remote IIS server.</summary>
 public sealed record RemoteDeploymentOutcome(RemoteIisTarget Target, bool Succeeded, string? Error);
 
+/// <summary>Result of a WinRM connectivity pre-flight against a remote server.</summary>
+public sealed record RemoteConnectionTest(bool Succeeded, string Message, IReadOnlyList<string> RemoteSites);
+
 /// <summary>
 /// Distributes an issued certificate to remote Windows/IIS servers over WinRM /
 /// PowerShell Remoting. The renewing instance authenticates as its own domain
@@ -50,6 +53,67 @@ public sealed class RemoteIisDeployer
             ["LSW_DOMAINS"] = string.Join("\n", domains),
             ["LSW_SITES"] = string.Join("\n", target.SiteNames),
         };
+    }
+
+    /// <summary>
+    /// Pre-flight: opens a WinRM session to the target (as the current identity)
+    /// and lists its IIS sites, so the user can confirm reachability, auth, and
+    /// the exact remote site names before saving. Never throws.
+    /// </summary>
+    public async Task<RemoteConnectionTest> TestConnectionAsync(RemoteIisTarget target, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(target.Host))
+            return new RemoteConnectionTest(false, "No host name.", Array.Empty<string>());
+
+        var scriptPath = Path.Combine(Path.GetTempPath(), $"lsw-test-{Guid.NewGuid():N}.ps1");
+        try
+        {
+            await File.WriteAllTextAsync(scriptPath, TestScript, ct);
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            psi.Environment["LSW_HOST"] = target.Host;
+            psi.Environment["LSW_PORT"] = target.WinRmPort.ToString();
+            psi.Environment["LSW_SSL"] = target.UseSsl ? "1" : "0";
+
+            using var process = Process.Start(psi)
+                ?? throw new InvalidOperationException("Failed to start powershell.exe.");
+            var stdout = await process.StandardOutput.ReadToEndAsync(ct);
+            var stderr = await process.StandardError.ReadToEndAsync(ct);
+            await process.WaitForExitAsync(ct);
+
+            if (process.ExitCode == 0)
+            {
+                var sites = stdout
+                    .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .Where(s => s.Length > 0 && s != "OK")
+                    .ToList();
+                var msg = sites.Count > 0
+                    ? $"Connected to {target.Host}. Remote IIS sites: {string.Join(", ", sites)}"
+                    : $"Connected to {target.Host}, but no IIS sites were found (is IIS installed?).";
+                return new RemoteConnectionTest(true, msg, sites);
+            }
+
+            var error = (stderr + stdout).Trim();
+            if (string.IsNullOrEmpty(error)) error = $"powershell.exe exited with code {process.ExitCode}.";
+            return new RemoteConnectionTest(false, $"Could not connect to {target.Host}: {error}", Array.Empty<string>());
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            return new RemoteConnectionTest(false, $"Could not connect to {target.Host}: {ex.Message}", Array.Empty<string>());
+        }
+        finally
+        {
+            try { File.Delete(scriptPath); } catch { /* best-effort */ }
+        }
     }
 
     /// <summary>Imports and binds the certificate on a single remote server.</summary>
@@ -183,6 +247,35 @@ public sealed class RemoteIisDeployer
 
         try {
             Invoke-Command @icmArgs
+            exit 0
+        } catch {
+            [Console]::Error.WriteLine($_.Exception.Message)
+            exit 1
+        }
+        """;
+
+    /// <summary>
+    /// WinRM connectivity pre-flight: connects and returns the remote IIS site
+    /// names (one per line after an "OK" marker), or exits non-zero with the error.
+    /// </summary>
+    public const string TestScript = """
+        $ErrorActionPreference = 'Stop'
+        $targetHost = $env:LSW_HOST
+        $port       = [int]$env:LSW_PORT
+        $useSsl     = $env:LSW_SSL -eq '1'
+
+        $remote = {
+            try { Import-Module WebAdministration -ErrorAction Stop; @(Get-Website | ForEach-Object { $_.Name }) }
+            catch { @() }
+        }
+
+        $icmArgs = @{ ComputerName = $targetHost; Port = $port; ScriptBlock = $remote; ErrorAction = 'Stop' }
+        if ($useSsl) { $icmArgs['UseSSL'] = $true }
+
+        try {
+            $sites = @(Invoke-Command @icmArgs)
+            Write-Output 'OK'
+            $sites | ForEach-Object { Write-Output $_ }
             exit 0
         } catch {
             [Console]::Error.WriteLine($_.Exception.Message)
