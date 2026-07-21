@@ -87,6 +87,9 @@ public class CertificateManager
                 BindToIis(config, installed);
             }
 
+            if (config.RemoteTargets.Count > 0)
+                await DeployToRemoteTargetsAsync(config, result.PfxBytes, result.PfxPassword, progress, ct);
+
             if (config.DeploymentTasks.Count > 0)
             {
                 var context = new DeploymentContext
@@ -184,6 +187,39 @@ public class CertificateManager
                     continue; // wildcard hosts are not valid SNI binding host names
                 iis.BindCertificate(site, domain, hash, _store.StoreNameForIis);
             }
+    }
+
+    /// <summary>
+    /// Distributes the certificate to every configured remote IIS server. Runs on
+    /// each issuance and renewal. A failure against one server is recorded on that
+    /// target and logged, but never aborts the renewal or the other targets — the
+    /// local install has already succeeded by this point.
+    /// </summary>
+    private async Task DeployToRemoteTargetsAsync(
+        ManagedCertificate config, byte[] pfxBytes, string pfxPassword,
+        IProgress<string>? progress, CancellationToken ct)
+    {
+        var deployer = new RemoteIisDeployer();
+        var domains = config.AllDomains;
+        foreach (var target in config.RemoteTargets)
+        {
+            ct.ThrowIfCancellationRequested();
+            progress?.Report($"Deploying certificate to remote server {target.Host}…");
+            var outcome = await deployer.DeployAsync(target, pfxBytes, pfxPassword, config.FriendlyName, domains, progress, ct);
+            if (outcome.Succeeded)
+            {
+                target.LastDeployed = DateTimeOffset.UtcNow;
+                target.LastError = null;
+                _logger.LogInformation("Deployed {Domain} to remote server {Host}.", config.PrimaryDomain, target.Host);
+            }
+            else
+            {
+                target.LastError = outcome.Error;
+                _logger.LogError("Remote deployment of {Domain} to {Host} failed: {Error}",
+                    config.PrimaryDomain, target.Host, outcome.Error);
+                progress?.Report($"Remote deployment to {target.Host} failed: {outcome.Error}");
+            }
+        }
     }
 
     /// <summary>

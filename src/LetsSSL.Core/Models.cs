@@ -74,6 +74,30 @@ public class DeploymentTaskConfig
     public string? Get(string key) => Settings.TryGetValue(key, out var v) ? v : null;
 }
 
+/// <summary>
+/// A remote Windows/IIS server the certificate is distributed to on every
+/// issuance and renewal. The renewing instance connects over WinRM/PowerShell
+/// Remoting (authenticated as its own domain service account — Kerberos, no
+/// stored credentials), imports the PFX into the remote LocalMachine\My store,
+/// and binds it to the listed IIS sites. This machine remains the single source
+/// of truth; the target stores no certificate configuration of its own.
+/// </summary>
+public class RemoteIisTarget
+{
+    /// <summary>Remote host name (must be resolvable and WinRM-reachable).</summary>
+    public string Host { get; set; } = string.Empty;
+    /// <summary>WinRM port. 5986 for HTTPS (default), 5985 for HTTP.</summary>
+    public int WinRmPort { get; set; } = 5986;
+    /// <summary>Use the WinRM HTTPS listener (recommended).</summary>
+    public bool UseSsl { get; set; } = true;
+    /// <summary>IIS sites on the remote server to bind the certificate to.</summary>
+    public List<string> SiteNames { get; set; } = new();
+
+    // ---- Per-target deployment state (recorded on the renewing instance) ----
+    public DateTimeOffset? LastDeployed { get; set; }
+    public string? LastError { get; set; }
+}
+
 /// <summary>Email/webhook notification configuration (stored inside AppSettings).</summary>
 public class NotificationSettings
 {
@@ -143,6 +167,11 @@ public class ManagedCertificate
     public string? IisSiteName { get; set; }
     /// <summary>All IIS sites the certificate should be bound to.</summary>
     public List<string> IisSiteNames { get; set; } = new();
+    /// <summary>
+    /// Remote Windows/IIS servers this certificate is distributed to on every
+    /// issuance and renewal (over WinRM). Empty for a local-only certificate.
+    /// </summary>
+    public List<RemoteIisTarget> RemoteTargets { get; set; } = new();
     /// <summary>
     /// Optional friendly name applied to the certificate in the Windows store, so
     /// it appears with a recognisable label in IIS's Server Certificates list.
