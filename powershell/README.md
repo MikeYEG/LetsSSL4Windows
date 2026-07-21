@@ -152,6 +152,36 @@ After issuance you can run post-issue tasks (stored per certificate in
   `LETSSSL4WINDOWS_DOMAIN`, `LETSSSL4WINDOWS_PFX_PATH`, and
   `LETSSSL4WINDOWS_PFX_PASSWORD` in the environment.
 
+## Remote IIS deployment (WinRM)
+
+A single instance can renew a certificate and push it to **multiple remote
+Windows/IIS servers** on every renewal — this machine stays the single source of
+truth. For each target it connects over **WinRM / PowerShell Remoting**, imports
+the PFX into the remote `LocalMachine\My` (with the friendly name), and binds it
+to the listed IIS sites with SNI.
+
+```powershell
+.\LetsSSL4Windows.ps1 -Command New -Domain www.example.com -IisSite "Default Web Site" `
+    -RemoteTarget "host=web2.corp.local;sites=Default Web Site,api;port=5986;ssl=1" `
+    -RemoteTarget "host=web3.corp.local;sites=Default Web Site"
+```
+
+`-RemoteTarget` is repeatable; the spec keys are `host` (required), `sites`
+(comma-separated), `port` (default 5986), and `ssl` (`1`/`0`, default `1`). The
+interactive **New certificate** wizard also prompts for remote servers, and
+`-Command Show` lists each target's last-deployed / last-error state.
+
+**Prerequisites**
+
+- **WinRM enabled** on each target (`Enable-PSRemoting -Force`), reachable on the
+  chosen port (5986 HTTPS recommended; open the firewall).
+- The identity running the renewal — ideally a **domain service account** — must
+  be a **local administrator** on each target. Authentication is **Kerberos**
+  (the current identity); **no credentials are stored**. For non-domain targets
+  you'd need to configure WinRM TrustedHosts/HTTPS yourself.
+- A per-target failure is recorded (and logged) but never blocks the local
+  install or the other targets.
+
 ## Notifications
 
 Configure email (SMTP) and/or a webhook (Slack/Teams/Discord/custom) under

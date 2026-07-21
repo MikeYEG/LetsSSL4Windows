@@ -53,6 +53,9 @@ $Public = @(
     'Get-IisSites'
     'Get-IisSitePhysicalPath'
     'Invoke-IisBind'
+    # Remote IIS (WinRM)
+    'New-RemoteIisTarget'
+    'Invoke-RemoteIisDeploy'
     # Export
     'Export-IssuedCertificate'
     # Scheduled task

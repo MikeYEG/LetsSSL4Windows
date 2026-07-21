@@ -66,12 +66,53 @@ Describe 'New-ManagedCertificate' {
         $c.AutoRenew               | Should -BeTrue
         $c.RenewalDaysBeforeExpiry | Should -Be 30
         $c.Thumbprint              | Should -BeNullOrEmpty
+        @($c.RemoteTargets).Count  | Should -Be 0
     }
     It 'produces a 32-char hex Id' {
         (New-ManagedCertificate).Id | Should -Match '^[0-9a-f]{32}$'
     }
     It 'produces unique Ids' {
         (New-ManagedCertificate).Id | Should -Not -Be (New-ManagedCertificate).Id
+    }
+}
+
+Describe 'Remote IIS targets' {
+    It 'New-RemoteIisTarget defaults to WinRM over HTTPS' {
+        $t = New-RemoteIisTarget -HostName 'web2.corp'
+        $t.Host       | Should -Be 'web2.corp'
+        $t.WinRmPort  | Should -Be 5986
+        $t.UseSsl     | Should -BeTrue
+        @($t.SiteNames).Count | Should -Be 0
+    }
+
+    It 'ConvertTo-RemoteIisTarget parses a full spec' {
+        $t = ConvertTo-RemoteIisTarget -Spec 'host=web2;sites=Default Web Site,api;port=5985;ssl=0'
+        $t.Host      | Should -Be 'web2'
+        $t.WinRmPort | Should -Be 5985
+        $t.UseSsl    | Should -BeFalse
+        $t.SiteNames | Should -Be @('Default Web Site', 'api')
+    }
+
+    It 'ConvertTo-RemoteIisTarget applies defaults for omitted fields' {
+        $t = ConvertTo-RemoteIisTarget -Spec 'host=web3'
+        $t.WinRmPort | Should -Be 5986
+        $t.UseSsl    | Should -BeTrue
+        @($t.SiteNames).Count | Should -Be 0
+    }
+
+    It 'ConvertTo-RemoteIisTarget requires a host' {
+        { ConvertTo-RemoteIisTarget -Spec 'sites=api' } | Should -Throw
+    }
+
+    It 'round-trips through the JSON store' {
+        $c = New-TestCert -Domain 'store.example.com'
+        $c.RemoteTargets = @(New-RemoteIisTarget -HostName 'web9' -WinRmPort 5985 -UseSsl $false -SiteNames @('api'))
+        Set-Certificate -Certificate $c
+        $reloaded = Resolve-Certificate -Selector $c.Id
+        @($reloaded.RemoteTargets).Count | Should -Be 1
+        $reloaded.RemoteTargets[0].Host      | Should -Be 'web9'
+        $reloaded.RemoteTargets[0].WinRmPort | Should -Be 5985
+        $reloaded.RemoteTargets[0].UseSsl    | Should -BeFalse
     }
 }
 

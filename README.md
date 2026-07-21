@@ -182,6 +182,29 @@ Run post-issuance tasks (configured per certificate in the wizard or in
 - **Run script** — runs a `.ps1`/exe with `LETSSSL4WINDOWS_THUMBPRINT`, `LETSSSL4WINDOWS_DOMAIN`,
   `LETSSSL4WINDOWS_PFX_PATH`, and `LETSSSL4WINDOWS_PFX_PASSWORD` in the environment.
 
+## Remote IIS deployment (WinRM)
+
+One instance can renew a certificate and distribute it to **multiple remote
+Windows/IIS servers** on every renewal — this machine remains the single source
+of truth. For each configured target, the renewing instance connects over
+**WinRM / PowerShell Remoting**, imports the PFX into the remote `LocalMachine\My`
+store (with the friendly name), and binds it to the listed IIS sites with SNI —
+the remote equivalent of the local install-and-bind.
+
+**Prerequisites**
+
+- **WinRM enabled** on each target (`Enable-PSRemoting -Force`) and reachable on
+  the chosen port (5986 for HTTPS, recommended; 5985 for HTTP).
+- The **renewal service runs as a domain service account** that is a **local
+  administrator** on each target. Authentication is **Kerberos** (the service's
+  own identity) — **no credentials are stored anywhere**.
+- A failure against one server is recorded per-target and logged, but never
+  aborts the local install or the other targets.
+
+Configure targets per certificate (host, WinRM port/SSL, and the remote site
+names). In the PowerShell edition this is the `-RemoteTarget` option and the New
+certificate wizard; see [`powershell/README.md`](powershell/README.md#remote-iis-deployment-winrm).
+
 ## Notifications
 
 Get alerted when certificates are issued/renewed — or when a renewal fails (the

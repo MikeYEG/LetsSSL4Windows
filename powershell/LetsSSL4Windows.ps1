@@ -76,6 +76,7 @@ param(
     [string]$IisSite,
     [string]$WebRoot,
     [string]$FriendlyName,           # name shown for the certificate in IIS
+    [string[]]$RemoteTarget,         # remote IIS server(s): "host=web2;sites=Default Web Site,api;port=5986;ssl=1"
     [switch]$NoBind,
     [switch]$NoAutoRenew,
     [int]$RenewalDays = 30,
@@ -378,6 +379,7 @@ function New-ManagedCertificate {
         DeploymentTasks          = @()
         IisSiteName              = $null
         FriendlyName             = $null
+        RemoteTargets            = @()
         WebRootPath              = $null
         BindToIis                = $true
         AutoRenew                = $true
@@ -634,6 +636,118 @@ function Invoke-IisBind {
     }
 }
 
+function New-RemoteIisTarget {
+    # A remote Windows/IIS server the certificate is distributed to on renewal.
+    param(
+        [Parameter(Mandatory)][string]$HostName,
+        [int]$WinRmPort = 5986,
+        [bool]$UseSsl = $true,
+        [string[]]$SiteNames = @()
+    )
+    [pscustomobject]@{
+        Host         = $HostName
+        WinRmPort    = $WinRmPort
+        UseSsl       = $UseSsl
+        SiteNames    = @($SiteNames)
+        LastDeployed = $null
+        LastError    = $null
+    }
+}
+
+function ConvertTo-RemoteIisTarget {
+    # Parses a CLI spec like "host=web2;sites=Default Web Site,api;port=5985;ssl=0".
+    param([Parameter(Mandatory)][string]$Spec)
+    $map = @{}
+    foreach ($pair in ($Spec -split ';')) {
+        $idx = $pair.IndexOf('=')
+        if ($idx -gt 0) {
+            $key = $pair.Substring(0, $idx).Trim().ToLowerInvariant()
+            $map[$key] = $pair.Substring($idx + 1).Trim()
+        }
+    }
+    if (-not $map.ContainsKey('host') -or [string]::IsNullOrWhiteSpace($map['host'])) {
+        throw "A -RemoteTarget spec must include host= (got '$Spec')."
+    }
+    $sites = @()
+    if ($map.ContainsKey('sites')) { $sites = @($map['sites'] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+    $port  = if ($map.ContainsKey('port')) { [int]$map['port'] } else { 5986 }
+    $useSsl = if ($map.ContainsKey('ssl')) { $map['ssl'] -in @('1','true','yes') } else { $true }
+    New-RemoteIisTarget -HostName $map['host'] -WinRmPort $port -UseSsl $useSsl -SiteNames $sites
+}
+
+function Invoke-RemoteIisDeploy {
+    # Distributes an issued certificate to one remote server over WinRM /
+    # PowerShell Remoting, authenticating as the current identity (a domain
+    # service account -> Kerberos; no stored credentials). Imports the PFX into
+    # the remote LocalMachine\My with the friendly name and binds the given IIS
+    # sites with SNI, mirroring the local install/bind.
+    param(
+        [Parameter(Mandatory)]$Cert,
+        [Parameter(Mandatory)]$Target,
+        [Parameter(Mandatory)][string]$PfxPath,
+        [Parameter(Mandatory)][string]$PfxPassword
+    )
+    $targetHost = $Target.Host
+    if ([string]::IsNullOrWhiteSpace($targetHost)) { throw "A remote target has no host name." }
+
+    $pfxB64   = [Convert]::ToBase64String([IO.File]::ReadAllBytes($PfxPath))
+    $friendly = Get-PropValue -Obj $Cert -Name 'FriendlyName'
+    $domains  = @(Get-AllDomains -Cert $Cert | Where-Object { -not $_.StartsWith('*.') })
+    $sites    = @($Target.SiteNames)
+
+    $remote = {
+        param($PfxB64, $PfxPass, $FriendlyName, $Domains, $Sites)
+        $ErrorActionPreference = 'Stop'
+        $bytes = [Convert]::FromBase64String($PfxB64)
+        $tmp = Join-Path $env:TEMP ([guid]::NewGuid().ToString('N') + '.pfx')
+        [IO.File]::WriteAllBytes($tmp, $bytes)
+        try {
+            $secure = ConvertTo-SecureString -String $PfxPass -AsPlainText -Force
+            $imported = @(Import-PfxCertificate -FilePath $tmp -CertStoreLocation 'Cert:\LocalMachine\My' -Password $secure -Exportable)
+            $installed = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
+            if (-not $installed) { $installed = $imported | Select-Object -First 1 }
+
+            if (-not [string]::IsNullOrWhiteSpace($FriendlyName)) {
+                $item = Get-Item -LiteralPath ("Cert:\LocalMachine\My\{0}" -f $installed.Thumbprint)
+                $item.FriendlyName = $FriendlyName
+            }
+
+            Get-ChildItem 'Cert:\LocalMachine\My' | Where-Object {
+                $_.Subject -eq $installed.Subject -and
+                $_.Thumbprint -ne $installed.Thumbprint -and
+                $_.NotAfter -le $installed.NotAfter
+            } | ForEach-Object { Remove-Item -LiteralPath $_.PSPath -Force -ErrorAction SilentlyContinue }
+
+            if (@($Sites).Count -gt 0) {
+                Import-Module WebAdministration -ErrorAction Stop
+                foreach ($site in $Sites) {
+                    foreach ($d in $Domains) {
+                        $existing = Get-WebBinding -Name $site -Protocol 'https' -Port 443 -HostHeader $d -ErrorAction SilentlyContinue
+                        if ($existing) { Remove-WebBinding -Name $site -Protocol 'https' -Port 443 -HostHeader $d -ErrorAction SilentlyContinue }
+                        New-WebBinding -Name $site -Protocol 'https' -Port 443 -HostHeader $d -SslFlags 1 -ErrorAction Stop | Out-Null
+                        $b = Get-WebBinding -Name $site -Protocol 'https' -Port 443 -HostHeader $d
+                        $b.AddSslCertificate($installed.Thumbprint, 'My')
+                    }
+                }
+            }
+        } finally {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $icmArgs = @{
+        ComputerName = $targetHost
+        Port         = [int]$Target.WinRmPort
+        ScriptBlock  = $remote
+        ArgumentList = @($pfxB64, $PfxPassword, $friendly, $domains, $sites)
+        ErrorAction  = 'Stop'
+    }
+    if ($Target.UseSsl) { $icmArgs['UseSSL'] = $true }
+
+    Write-Log "Deploying $($Cert.PrimaryDomain) -> remote server $targetHost (sites: $($sites -join ', '))." 'STEP'
+    Invoke-Command @icmArgs | Out-Null
+}
+
 #endregion
 
 #region ----------------------------------------------------------- Deployment tasks
@@ -879,6 +993,20 @@ function Invoke-RequestAndDeploy {
 
         if ($Cert.BindToIis -and $Cert.IisSiteName) {
             Invoke-IisBind -Cert $Cert -SiteName $Cert.IisSiteName
+        }
+
+        # Distribute to remote IIS servers (single source of truth: this instance
+        # renews and pushes to each target). One failure never blocks the others.
+        foreach ($rt in @(Get-PropValue -Obj $Cert -Name 'RemoteTargets')) {
+            if (-not $rt) { continue }
+            try {
+                Invoke-RemoteIisDeploy -Cert $Cert -Target $rt -PfxPath $destPfx -PfxPassword $pfxPass
+                $rt.LastDeployed = (Get-Date).ToUniversalTime().ToString('o')
+                $rt.LastError = $null
+            } catch {
+                $rt.LastError = $_.Exception.Message
+                Write-Log "Remote deployment to $($rt.Host) failed: $($rt.LastError)" 'ERROR'
+            }
         }
 
         if (@($Cert.DeploymentTasks).Count -gt 0) {
@@ -1167,6 +1295,14 @@ function Show-CertificateDetail {
     }
     Write-Host "    IIS site        : $(if ($Cert.IisSiteName) { $Cert.IisSiteName } else { '-' })"
     Write-Host "    IIS friendly name: $(if (-not [string]::IsNullOrWhiteSpace((Get-PropValue -Obj $Cert -Name 'FriendlyName'))) { $Cert.FriendlyName } else { '-' })"
+    $remoteTargets = @(Get-PropValue -Obj $Cert -Name 'RemoteTargets')
+    if ($remoteTargets.Count -gt 0) {
+        Write-Host "    Remote IIS servers:"
+        foreach ($rt in $remoteTargets) {
+            $state = if ($rt.LastError) { "ERROR: $($rt.LastError)" } elseif ($rt.LastDeployed) { "last deployed $($rt.LastDeployed)" } else { 'not yet deployed' }
+            Write-Host ("      - {0} (sites: {1}) - {2}" -f $rt.Host, (@($rt.SiteNames) -join ', '), $state)
+        }
+    }
     Write-Host "    Bind to IIS     : $($Cert.BindToIis)"
     Write-Host "    Auto-renew      : $($Cert.AutoRenew) (within $($Cert.RenewalDaysBeforeExpiry) days)"
     Write-Host "    Status          : $st"
@@ -1264,6 +1400,22 @@ function Invoke-NewCertificateWizard {
     # Friendly name shown in IIS's Server Certificates list (optional).
     $friendly = Read-Default -Prompt '  Certificate name in IIS (friendly name, optional)'
     if (-not [string]::IsNullOrWhiteSpace($friendly)) { $cert.FriendlyName = $friendly.Trim() }
+
+    # Remote IIS servers (WinRM). This instance renews and re-deploys to each on
+    # every renewal; it connects as the current identity (domain account/Kerberos).
+    if (Read-YesNo -Prompt '  Deploy to remote IIS server(s) over WinRM?' -Default $false) {
+        $targets = @()
+        do {
+            $rHost = Read-Default -Prompt '    Remote host name (blank to finish)'
+            if ([string]::IsNullOrWhiteSpace($rHost)) { break }
+            $sitesRaw = Read-Default -Prompt '    Remote IIS site name(s), comma-separated'
+            $rSites = @($sitesRaw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            $useSsl = Read-YesNo -Prompt '    Use WinRM over HTTPS (port 5986)?' -Default $true
+            $port   = if ($useSsl) { 5986 } else { 5985 }
+            $targets += (New-RemoteIisTarget -HostName $rHost.Trim() -WinRmPort $port -UseSsl $useSsl -SiteNames $rSites)
+        } while ($true)
+        $cert.RemoteTargets = @($targets)
+    }
 
     $cert.AutoRenew = Read-YesNo -Prompt '  Enable automatic renewal?' -Default $true
 
@@ -1478,6 +1630,10 @@ LetsSSL4Windows (PowerShell edition)
     -DnsProvider Manual|Cloudflare -DnsCredential <token>
     -IisSite <name> | -WebRoot <path>
     -FriendlyName <text>   Name shown for the certificate in IIS
+    -RemoteTarget "host=web2;sites=Default Web Site,api;port=5986;ssl=1"
+                           Deploy to a remote IIS server over WinRM (repeatable).
+                           Requires WinRM on the target and that this account
+                           (ideally a domain service account) is admin there.
     -NoBind  -NoAutoRenew  -RenewalDays <n>
 
   Data store: %ProgramData%\$($Script:AppName)
@@ -1511,6 +1667,7 @@ function Invoke-NewFromParams {
     }
     if ($IisSite) { $cert.IisSiteName = $IisSite }
     if ($FriendlyName) { $cert.FriendlyName = $FriendlyName.Trim() }
+    if ($RemoteTarget) { $cert.RemoteTargets = @($RemoteTarget | ForEach-Object { ConvertTo-RemoteIisTarget -Spec $_ } | Where-Object { $_ }) }
     $cert.BindToIis = (-not $NoBind) -and [bool]$cert.IisSiteName
 
     Set-Certificate -Certificate $cert
