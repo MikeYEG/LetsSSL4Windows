@@ -123,4 +123,12 @@ public partial class NewCertificateWindow : Window
         DialogResult = false;
         Close();
     }
+
+    private void OnAddRemoteTarget(object sender, RoutedEventArgs e) => _vm.AddRemoteTarget();
+
+    private void OnRemoveRemoteTarget(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: RemoteTargetViewModel target })
+            _vm.RemoveRemoteTarget(target);
+    }
 }
