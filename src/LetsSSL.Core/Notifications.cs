@@ -125,16 +125,27 @@ public sealed class NotificationService
         if (!success && !settings.NotifyOnFailure) return;
 
         var message = BuildMessage(cert, success, error, warnings);
-        foreach (var notifier in BuildNotifiers(settings))
+        foreach (var (channel, create) in NotifierFactories(settings))
         {
+            INotifier notifier;
             try
             {
-                await notifier.SendAsync(message, ct);
-                _logger.LogInformation("Sent {Channel} notification for {Domain}.", notifier.Name, cert.PrimaryDomain);
+                notifier = create();
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to send {Channel} notification.", notifier.Name);
+                _logger.LogWarning(ex, "Could not initialise the {Channel} notifier.", channel);
+                continue;
+            }
+
+            try
+            {
+                await notifier.SendAsync(message, ct);
+                _logger.LogInformation("Sent {Channel} notification for {Domain}.", channel, cert.PrimaryDomain);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send {Channel} notification.", channel);
             }
             finally
             {
@@ -162,16 +173,29 @@ public sealed class NotificationService
         };
 
         var results = new List<NotificationTestResult>();
-        foreach (var notifier in BuildNotifiers(settings))
+        foreach (var (channel, create) in NotifierFactories(settings))
         {
+            INotifier notifier;
             try
             {
-                await notifier.SendAsync(message, ct);
-                results.Add(new NotificationTestResult(notifier.Name, true, null));
+                notifier = create();
             }
             catch (Exception ex)
             {
-                results.Add(new NotificationTestResult(notifier.Name, false, ex.Message));
+                // Building the channel failed (e.g. decrypting the SMTP password);
+                // record it and keep testing the other channels.
+                results.Add(new NotificationTestResult(channel, false, ex.Message));
+                continue;
+            }
+
+            try
+            {
+                await notifier.SendAsync(message, ct);
+                results.Add(new NotificationTestResult(channel, true, null));
+            }
+            catch (Exception ex)
+            {
+                results.Add(new NotificationTestResult(channel, false, ex.Message));
             }
             finally
             {
@@ -217,20 +241,26 @@ public sealed class NotificationService
         };
     }
 
-    private static IEnumerable<INotifier> BuildNotifiers(NotificationSettings s)
+    /// <summary>
+    /// The channels a settings object enables, as deferred factories. Enumerating
+    /// this never throws — construction (which may decrypt the SMTP password and
+    /// can therefore fail) is deferred into the factory so each caller can guard
+    /// it per channel.
+    /// </summary>
+    private static IEnumerable<(string Channel, Func<INotifier> Create)> NotifierFactories(NotificationSettings s)
     {
         if (!string.IsNullOrWhiteSpace(s.WebhookUrl))
-            yield return new WebhookNotifier(s.WebhookUrl!);
+            yield return ("webhook", () => new WebhookNotifier(s.WebhookUrl!));
 
         if (s.EmailEnabled
             && !string.IsNullOrWhiteSpace(s.SmtpHost)
             && !string.IsNullOrWhiteSpace(s.FromAddress)
             && !string.IsNullOrWhiteSpace(s.ToAddress))
         {
-            yield return new EmailNotifier(
+            yield return ("email", () => new EmailNotifier(
                 s.SmtpHost!, s.SmtpPort, s.SmtpUseSsl,
                 s.SmtpUsername, SecretProtector.Unprotect(s.SmtpPasswordProtected),
-                s.FromAddress!, s.ToAddress!);
+                s.FromAddress!, s.ToAddress!));
         }
     }
 }
