@@ -105,13 +105,23 @@ public sealed class NotificationService
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<NotificationService>.Instance;
     }
 
-    public async Task NotifyIssuanceResultAsync(ManagedCertificate cert, bool success, string? error, CancellationToken ct = default)
+    /// <param name="warnings">
+    /// Non-fatal problems that occurred even though issuance itself succeeded —
+    /// e.g. a remote IIS deployment that failed. When present on a success, the
+    /// result is treated as a partial failure and alerted under NotifyOnFailure.
+    /// </param>
+    public async Task NotifyIssuanceResultAsync(
+        ManagedCertificate cert, bool success, string? error,
+        IReadOnlyList<string>? warnings = null, CancellationToken ct = default)
     {
+        var hasWarnings = warnings is { Count: > 0 };
         var settings = _settings.Load().Notifications;
-        if (success && !settings.NotifyOnSuccess) return;
+        // A success carrying warnings is a partial failure: gate it on NotifyOnFailure.
+        if (success && !hasWarnings && !settings.NotifyOnSuccess) return;
+        if (success && hasWarnings && !settings.NotifyOnFailure) return;
         if (!success && !settings.NotifyOnFailure) return;
 
-        var message = BuildMessage(cert, success, error);
+        var message = BuildMessage(cert, success, error, warnings);
         foreach (var notifier in BuildNotifiers(settings))
         {
             try
@@ -130,9 +140,22 @@ public sealed class NotificationService
         }
     }
 
-    private static NotificationMessage BuildMessage(ManagedCertificate cert, bool success, string? error)
+    private static NotificationMessage BuildMessage(ManagedCertificate cert, bool success, string? error, IReadOnlyList<string>? warnings = null)
     {
         var domains = string.Join(", ", cert.AllDomains);
+        if (success && warnings is { Count: > 0 })
+        {
+            var detail = string.Join("\n", warnings.Select(w => $"  - {w}"));
+            return new NotificationMessage
+            {
+                Domain = cert.PrimaryDomain,
+                IsFailure = true,
+                Subject = $"Certificate issued for {cert.PrimaryDomain}, but {warnings.Count} remote deployment(s) FAILED",
+                Body = $"A certificate for {domains} was issued/renewed and installed locally, " +
+                       $"but the following remote deployment(s) failed:\n{detail}\n\n" +
+                       $"Valid until: {cert.NotAfter?.ToString("u") ?? "unknown"}\nThumbprint: {cert.Thumbprint}",
+            };
+        }
         if (success)
         {
             return new NotificationMessage

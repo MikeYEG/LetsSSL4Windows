@@ -252,6 +252,15 @@ public class NewCertificateViewModel : ViewModelBase
     private string _friendlyName = string.Empty;
     public string FriendlyName { get => _friendlyName; set => SetField(ref _friendlyName, value); }
 
+    // ---- Remote IIS servers (WinRM) ----
+
+    /// <summary>Remote IIS servers the certificate is deployed to on each renewal.</summary>
+    public ObservableCollection<RemoteTargetViewModel> RemoteTargets { get; } = new();
+
+    public void AddRemoteTarget() => RemoteTargets.Add(new RemoteTargetViewModel());
+
+    public void RemoveRemoteTarget(RemoteTargetViewModel target) => RemoteTargets.Remove(target);
+
     private bool _autoRenew = true;
     public bool AutoRenew { get => _autoRenew; set => SetField(ref _autoRenew, value); }
 
@@ -327,6 +336,11 @@ public class NewCertificateViewModel : ViewModelBase
             BindToIis = BindToIis && selectedSites.Count > 0,
             AutoRenew = AutoRenew,
             FriendlyName = string.IsNullOrWhiteSpace(FriendlyName) ? null : FriendlyName.Trim(),
+            RemoteTargets = RemoteTargets
+                .Select(t => t.ToModel())
+                .Where(t => t is not null)
+                .Select(t => t!)
+                .ToList(),
         };
 
         if (UseDns)

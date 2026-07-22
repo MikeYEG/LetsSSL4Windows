@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using LetsSSL.App.ViewModels;
+using LetsSSL.Core.Iis;
 using LetsSSL.Core.Models;
 
 namespace LetsSSL.App.Views;
@@ -122,5 +123,45 @@ public partial class NewCertificateWindow : Window
     {
         DialogResult = false;
         Close();
+    }
+
+    private void OnAddRemoteTarget(object sender, RoutedEventArgs e) => _vm.AddRemoteTarget();
+
+    private void OnRemoveRemoteTarget(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: RemoteTargetViewModel target })
+            _vm.RemoveRemoteTarget(target);
+    }
+
+    // Pre-flight a remote target over WinRM and report reachability + its IIS sites.
+    private async void OnTestRemoteTarget(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: RemoteTargetViewModel row }) return;
+
+        var model = row.ToModel();
+        if (model is null)
+        {
+            row.TestSucceeded = false;
+            row.TestStatus = "Enter a host name first.";
+            return;
+        }
+
+        row.IsTesting = true;
+        row.TestStatus = $"Connecting to {model.Host} over WinRM…";
+        try
+        {
+            var result = await new RemoteIisDeployer().TestConnectionAsync(model);
+            row.TestSucceeded = result.Succeeded;
+            row.TestStatus = result.Message;
+        }
+        catch (System.Exception ex)
+        {
+            row.TestSucceeded = false;
+            row.TestStatus = $"Test failed: {ex.Message}";
+        }
+        finally
+        {
+            row.IsTesting = false;
+        }
     }
 }
