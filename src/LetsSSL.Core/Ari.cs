@@ -53,7 +53,7 @@ public static class AriCertId
         var serial = cert.GetSerialNumber();
         Array.Reverse(serial);
 
-        return Compute(keyId.Value.Span, serial);
+        return Compute(keyId.Span, serial);
     }
 
     private static string Base64Url(ReadOnlySpan<byte> data)
