@@ -129,6 +129,8 @@ public partial class NewCertificateWindow : Window
 
     private void OnAddRemoteTarget(object sender, RoutedEventArgs e) => _vm.AddRemoteTarget();
 
+    private async void OnTestAllRemoteTargets(object sender, RoutedEventArgs e) => await _vm.TestAllRemoteTargetsAsync();
+
     private void OnRemoveRemoteTarget(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: RemoteTargetViewModel target })

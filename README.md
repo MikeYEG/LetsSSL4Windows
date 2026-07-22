@@ -169,6 +169,11 @@ required for wildcard names like `*.example.com`. These providers ship today:
 - **Manual** — the app shows the exact TXT record to create and waits for you to
   confirm (interactive only; the unattended renewer can't run manual DNS).
 
+For the automated providers, click **Test credentials** in the wizard to validate
+the token/keys against the provider's API (Cloudflare token-verify; Route 53
+list-hosted-zones) before requesting — so a bad credential is caught up front
+instead of mid-issuance.
+
 Secrets (tokens/keys) are stored encrypted with Windows DPAPI. Azure DNS and
 Google Cloud DNS are planned next, using the same pluggable provider interface.
 

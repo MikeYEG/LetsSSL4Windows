@@ -316,9 +316,52 @@ public class NewCertificateViewModel : ViewModelBase
     /// <summary>Remote IIS servers the certificate is deployed to on each renewal.</summary>
     public ObservableCollection<RemoteTargetViewModel> RemoteTargets { get; } = new();
 
-    public void AddRemoteTarget() => RemoteTargets.Add(new RemoteTargetViewModel());
+    public void AddRemoteTarget()
+    {
+        RemoteTargets.Add(new RemoteTargetViewModel());
+        OnPropertyChanged(nameof(HasRemoteTargets));
+    }
 
-    public void RemoveRemoteTarget(RemoteTargetViewModel target) => RemoteTargets.Remove(target);
+    public void RemoveRemoteTarget(RemoteTargetViewModel target)
+    {
+        RemoteTargets.Remove(target);
+        OnPropertyChanged(nameof(HasRemoteTargets));
+    }
+
+    public bool HasRemoteTargets => RemoteTargets.Count > 0;
+
+    /// <summary>Runs the WinRM pre-flight against every configured remote target.</summary>
+    public async Task TestAllRemoteTargetsAsync()
+    {
+        var deployer = new RemoteIisDeployer();
+        foreach (var row in RemoteTargets.ToList())
+        {
+            var model = row.ToModel();
+            if (model is null)
+            {
+                row.TestSucceeded = false;
+                row.TestStatus = "Enter a host name first.";
+                continue;
+            }
+            row.IsTesting = true;
+            row.TestStatus = $"Connecting to {model.Host} over WinRM…";
+            try
+            {
+                var result = await deployer.TestConnectionAsync(model);
+                row.TestSucceeded = result.Succeeded;
+                row.TestStatus = result.Message;
+            }
+            catch (Exception ex)
+            {
+                row.TestSucceeded = false;
+                row.TestStatus = $"Test failed: {ex.Message}";
+            }
+            finally
+            {
+                row.IsTesting = false;
+            }
+        }
+    }
 
     private bool _autoRenew = true;
     public bool AutoRenew { get => _autoRenew; set => SetField(ref _autoRenew, value); }
