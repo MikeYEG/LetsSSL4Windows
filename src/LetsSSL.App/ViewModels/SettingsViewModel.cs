@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Windows;
 using LetsSSL.App.Services;
 using LetsSSL.Core.Models;
+using LetsSSL.Core.Notifications;
 using LetsSSL.Core.Storage;
 using LetsSSL.Core.Updates;
 
@@ -20,6 +21,7 @@ public class SettingsViewModel : ViewModelBase
         _updateChecker = updateChecker;
         CheckForUpdatesCommand = new AsyncRelayCommand(_ => CheckForUpdatesAsync());
         DownloadInstallCommand = new AsyncRelayCommand(_ => DownloadInstallAsync(), _ => UpdateFound);
+        TestNotificationsCommand = new AsyncRelayCommand(_ => TestNotificationsAsync());
 
         var s = repository.Load();
         _isProduction = s.Environment == AcmeEnvironment.Production;
@@ -140,6 +142,61 @@ public class SettingsViewModel : ViewModelBase
     private string _toAddress;
     public string ToAddress { get => _toAddress; set => SetField(ref _toAddress, value); }
 
+    // ---- Test connection ----
+
+    public AsyncRelayCommand TestNotificationsCommand { get; }
+
+    private string _notificationTestStatus = string.Empty;
+    public string NotificationTestStatus { get => _notificationTestStatus; private set => SetField(ref _notificationTestStatus, value); }
+
+    /// <summary>True if at least one channel has enough configuration to deliver.</summary>
+    private bool HasConfiguredChannel(NotificationSettings s) =>
+        !string.IsNullOrWhiteSpace(s.WebhookUrl)
+        || (s.EmailEnabled
+            && !string.IsNullOrWhiteSpace(s.SmtpHost)
+            && !string.IsNullOrWhiteSpace(s.FromAddress)
+            && !string.IsNullOrWhiteSpace(s.ToAddress));
+
+    private async Task TestNotificationsAsync()
+    {
+        var settings = BuildNotificationSettings();
+        if (!HasConfiguredChannel(settings))
+        {
+            NotificationTestStatus = "Configure a webhook URL or email (SMTP host, from and to addresses) first.";
+            return;
+        }
+
+        NotificationTestStatus = "Sending a test notification…";
+        try
+        {
+            var results = await NotificationService.SendTestAsync(settings);
+            NotificationTestStatus = results.Count == 0
+                ? "No channels were configured to test."
+                : string.Join("   ", results.Select(r =>
+                    r.Success ? $"✓ {r.Channel}: sent" : $"✗ {r.Channel}: {r.Error}"));
+        }
+        catch (Exception ex)
+        {
+            NotificationTestStatus = "Test failed: " + ex.Message;
+        }
+    }
+
+    /// <summary>Builds the notification settings from the current editor state.</summary>
+    private NotificationSettings BuildNotificationSettings() => new()
+    {
+        NotifyOnSuccess = NotifyOnSuccess,
+        NotifyOnFailure = NotifyOnFailure,
+        WebhookUrl = string.IsNullOrWhiteSpace(WebhookUrl) ? null : WebhookUrl.Trim(),
+        EmailEnabled = EmailEnabled,
+        SmtpHost = string.IsNullOrWhiteSpace(SmtpHost) ? null : SmtpHost.Trim(),
+        SmtpPort = SmtpPort,
+        SmtpUseSsl = SmtpUseSsl,
+        SmtpUsername = string.IsNullOrWhiteSpace(SmtpUsername) ? null : SmtpUsername.Trim(),
+        SmtpPasswordProtected = string.IsNullOrEmpty(SmtpPassword) ? null : SecretProtector.Protect(SmtpPassword),
+        FromAddress = string.IsNullOrWhiteSpace(FromAddress) ? null : FromAddress.Trim(),
+        ToAddress = string.IsNullOrWhiteSpace(ToAddress) ? null : ToAddress.Trim(),
+    };
+
     public void Save()
     {
         _repository.Save(new AppSettings
@@ -148,20 +205,7 @@ public class SettingsViewModel : ViewModelBase
             ContactEmail = ContactEmail?.Trim() ?? string.Empty,
             EnableAutoRenewal = EnableAutoRenewal,
             Theme = IsDarkMode ? AppTheme.Dark : AppTheme.Light,
-            Notifications = new NotificationSettings
-            {
-                NotifyOnSuccess = NotifyOnSuccess,
-                NotifyOnFailure = NotifyOnFailure,
-                WebhookUrl = string.IsNullOrWhiteSpace(WebhookUrl) ? null : WebhookUrl.Trim(),
-                EmailEnabled = EmailEnabled,
-                SmtpHost = string.IsNullOrWhiteSpace(SmtpHost) ? null : SmtpHost.Trim(),
-                SmtpPort = SmtpPort,
-                SmtpUseSsl = SmtpUseSsl,
-                SmtpUsername = string.IsNullOrWhiteSpace(SmtpUsername) ? null : SmtpUsername.Trim(),
-                SmtpPasswordProtected = string.IsNullOrEmpty(SmtpPassword) ? null : SecretProtector.Protect(SmtpPassword),
-                FromAddress = string.IsNullOrWhiteSpace(FromAddress) ? null : FromAddress.Trim(),
-                ToAddress = string.IsNullOrWhiteSpace(ToAddress) ? null : ToAddress.Trim(),
-            },
+            Notifications = BuildNotificationSettings(),
         });
     }
 }

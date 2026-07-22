@@ -25,6 +25,9 @@ public interface INotifier
     Task SendAsync(NotificationMessage message, CancellationToken ct = default);
 }
 
+/// <summary>Per-channel outcome of a notification connection test.</summary>
+public sealed record NotificationTestResult(string Channel, bool Success, string? Error);
+
 /// <summary>POSTs a JSON payload to a webhook URL (Slack/Teams/Discord/custom).</summary>
 public sealed class WebhookNotifier : INotifier, IDisposable
 {
@@ -122,22 +125,84 @@ public sealed class NotificationService
         if (!success && !settings.NotifyOnFailure) return;
 
         var message = BuildMessage(cert, success, error, warnings);
-        foreach (var notifier in BuildNotifiers(settings))
+        foreach (var (channel, create) in NotifierFactories(settings))
         {
+            INotifier notifier;
             try
             {
-                await notifier.SendAsync(message, ct);
-                _logger.LogInformation("Sent {Channel} notification for {Domain}.", notifier.Name, cert.PrimaryDomain);
+                notifier = create();
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to send {Channel} notification.", notifier.Name);
+                _logger.LogWarning(ex, "Could not initialise the {Channel} notifier.", channel);
+                continue;
+            }
+
+            try
+            {
+                await notifier.SendAsync(message, ct);
+                _logger.LogInformation("Sent {Channel} notification for {Domain}.", channel, cert.PrimaryDomain);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send {Channel} notification.", channel);
             }
             finally
             {
                 (notifier as IDisposable)?.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// Sends a test notification over every channel configured in
+    /// <paramref name="settings"/> (regardless of the notify-on-success/failure
+    /// toggles), returning a per-channel result so the UI can report which
+    /// channels delivered. Never throws — delivery errors are captured per channel.
+    /// </summary>
+    public static async Task<IReadOnlyList<NotificationTestResult>> SendTestAsync(
+        NotificationSettings settings, CancellationToken ct = default)
+    {
+        var message = new NotificationMessage
+        {
+            Domain = "test.example.com",
+            IsFailure = false,
+            Subject = "LetsSSL4Windows test notification",
+            Body = "This is a test notification from LetsSSL4Windows. " +
+                   "If you received it, your notification settings are working.",
+        };
+
+        var results = new List<NotificationTestResult>();
+        foreach (var (channel, create) in NotifierFactories(settings))
+        {
+            INotifier notifier;
+            try
+            {
+                notifier = create();
+            }
+            catch (Exception ex)
+            {
+                // Building the channel failed (e.g. decrypting the SMTP password);
+                // record it and keep testing the other channels.
+                results.Add(new NotificationTestResult(channel, false, ex.Message));
+                continue;
+            }
+
+            try
+            {
+                await notifier.SendAsync(message, ct);
+                results.Add(new NotificationTestResult(channel, true, null));
+            }
+            catch (Exception ex)
+            {
+                results.Add(new NotificationTestResult(channel, false, ex.Message));
+            }
+            finally
+            {
+                (notifier as IDisposable)?.Dispose();
+            }
+        }
+        return results;
     }
 
     private static NotificationMessage BuildMessage(ManagedCertificate cert, bool success, string? error, IReadOnlyList<string>? warnings = null)
@@ -176,20 +241,26 @@ public sealed class NotificationService
         };
     }
 
-    private static IEnumerable<INotifier> BuildNotifiers(NotificationSettings s)
+    /// <summary>
+    /// The channels a settings object enables, as deferred factories. Enumerating
+    /// this never throws — construction (which may decrypt the SMTP password and
+    /// can therefore fail) is deferred into the factory so each caller can guard
+    /// it per channel.
+    /// </summary>
+    private static IEnumerable<(string Channel, Func<INotifier> Create)> NotifierFactories(NotificationSettings s)
     {
         if (!string.IsNullOrWhiteSpace(s.WebhookUrl))
-            yield return new WebhookNotifier(s.WebhookUrl!);
+            yield return ("webhook", () => new WebhookNotifier(s.WebhookUrl!));
 
         if (s.EmailEnabled
             && !string.IsNullOrWhiteSpace(s.SmtpHost)
             && !string.IsNullOrWhiteSpace(s.FromAddress)
             && !string.IsNullOrWhiteSpace(s.ToAddress))
         {
-            yield return new EmailNotifier(
+            yield return ("email", () => new EmailNotifier(
                 s.SmtpHost!, s.SmtpPort, s.SmtpUseSsl,
                 s.SmtpUsername, SecretProtector.Unprotect(s.SmtpPasswordProtected),
-                s.FromAddress!, s.ToAddress!);
+                s.FromAddress!, s.ToAddress!));
         }
     }
 }
