@@ -27,6 +27,7 @@ public sealed class ConfigBackup
     /// </summary>
     public void Create(string destinationZipPath, bool includePfx = true)
     {
+        _paths.EnsureCreated(); // don't throw if the store was never initialised
         var root = Path.GetFullPath(_paths.RootDir);
         var tmp = destinationZipPath + ".tmp";
         if (File.Exists(tmp)) File.Delete(tmp);
