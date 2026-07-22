@@ -68,18 +68,24 @@ public class CertificateManager
             var result = await _acme.RequestCertificateAsync(config, environment, handler, progress, ct);
 
             progress?.Report("Installing certificate into the Windows store…");
-            var installed = _store.ImportPfx(result.PfxBytes, result.PfxPassword, config.FriendlyName);
+            using var installed = _store.ImportPfx(result.PfxBytes, result.PfxPassword, config.FriendlyName);
 
-            // Save the PFX alongside our data so it can be re-deployed if needed.
-            var pfxPath = _paths.PfxFileFor(config.Id);
-            await File.WriteAllBytesAsync(pfxPath, result.PfxBytes, ct);
-
+            // The certificate is now in the store. Record and persist the issued
+            // state immediately — before the PFX file write and any deploy step —
+            // so a later cancellation/failure can't lose the record or misreport a
+            // false failure (the OperationCanceledException filter below keys off
+            // Thumbprint being set).
             config.Thumbprint = installed.Thumbprint;
             config.NotBefore = new DateTimeOffset(installed.NotBefore.ToUniversalTime());
             config.NotAfter = new DateTimeOffset(installed.NotAfter.ToUniversalTime());
             config.LastRenewed = DateTimeOffset.UtcNow;
-            config.PfxPath = pfxPath;
             config.LastError = null;
+            _repository.Upsert(config);
+
+            // Save the PFX alongside our data so it can be re-deployed if needed.
+            var pfxPath = _paths.PfxFileFor(config.Id);
+            await File.WriteAllBytesAsync(pfxPath, result.PfxBytes, ct);
+            config.PfxPath = pfxPath;
 
             if (config.BindToIis && EffectiveSites(config).Count > 0)
             {
@@ -118,6 +124,15 @@ public class CertificateManager
             }
 
             return config;
+        }
+        catch (OperationCanceledException) when (!string.IsNullOrEmpty(config.Thumbprint))
+        {
+            // The certificate was already issued and installed; a later deploy step
+            // was cancelled. Preserve the successful record rather than reporting
+            // the whole issuance as a failure.
+            _logger.LogWarning("Deployment cancelled after {Domain} was issued and installed.", config.PrimaryDomain);
+            _repository.Upsert(config);
+            throw;
         }
         catch (Exception ex)
         {

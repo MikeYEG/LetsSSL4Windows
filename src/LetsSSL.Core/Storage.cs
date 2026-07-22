@@ -198,13 +198,17 @@ public class WindowsCertificateStore
 
         if (removeOlderWithSameSubject)
         {
+            // Each enumerated cert holds an unmanaged key handle — dispose them.
             foreach (var existing in store.Certificates)
             {
-                if (string.Equals(existing.Subject, cert.Subject, StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(existing.Thumbprint, cert.Thumbprint, StringComparison.OrdinalIgnoreCase)
-                    && existing.NotAfter <= cert.NotAfter)
+                using (existing)
                 {
-                    store.Remove(existing);
+                    if (string.Equals(existing.Subject, cert.Subject, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(existing.Thumbprint, cert.Thumbprint, StringComparison.OrdinalIgnoreCase)
+                        && existing.NotAfter <= cert.NotAfter)
+                    {
+                        store.Remove(existing);
+                    }
                 }
             }
         }
@@ -218,7 +222,8 @@ public class WindowsCertificateStore
         using var store = new X509Store(_storeName, _storeLocation);
         store.Open(OpenFlags.ReadWrite);
         foreach (var c in store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, false))
-            store.Remove(c);
+            using (c)
+                store.Remove(c);
     }
 
     /// <summary>Returns the installed certificate with the given thumbprint, or null.</summary>
@@ -227,7 +232,10 @@ public class WindowsCertificateStore
         using var store = new X509Store(_storeName, _storeLocation);
         store.Open(OpenFlags.ReadOnly);
         var matches = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, validOnly: false);
-        return matches.Count > 0 ? matches[0] : null;
+        if (matches.Count == 0) return null;
+        // Return the first; dispose any extras so their key handles aren't leaked.
+        for (var i = 1; i < matches.Count; i++) matches[i].Dispose();
+        return matches[0];
     }
 }
 

@@ -551,6 +551,7 @@ function Import-CertToStore {
     # A full-chain PFX imports the leaf plus chain certs; pick the leaf (has the key).
     $installed = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
     if (-not $installed) { $installed = $imported | Select-Object -First 1 }
+    if (-not $installed) { throw "PFX import produced no certificate." }
 
     # Set the friendly name on the store entry so IIS shows it with a recognisable
     # label in its Server Certificates list. Setting it via the Cert: provider
@@ -713,6 +714,7 @@ function Invoke-RemoteIisDeploy {
             $imported = @(Import-PfxCertificate -FilePath $tmp -CertStoreLocation 'Cert:\LocalMachine\My' -Password $secure -Exportable)
             $installed = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
             if (-not $installed) { $installed = $imported | Select-Object -First 1 }
+            if (-not $installed) { throw 'PFX import produced no certificate on the remote server.' }
 
             if (-not [string]::IsNullOrWhiteSpace($FriendlyName)) {
                 $item = Get-Item -LiteralPath ("Cert:\LocalMachine\My\{0}" -f $installed.Thumbprint)
@@ -870,7 +872,8 @@ function Send-IssuanceNotification {
         [string[]]$Warnings   # non-fatal problems (e.g. failed remote deployments)
     )
     $settings = (Get-Settings).Notifications
-    $hasWarnings = @($Warnings).Count -gt 0
+    $warn = @($Warnings | Where-Object { $_ })   # drop null/empty entries
+    $hasWarnings = $warn.Count -gt 0
     # A success carrying warnings is a partial failure: gate it on NotifyOnFailure.
     if ($Success -and -not $hasWarnings -and -not $settings.NotifyOnSuccess) { return }
     if ($Success -and $hasWarnings -and -not $settings.NotifyOnFailure) { return }
@@ -878,8 +881,8 @@ function Send-IssuanceNotification {
 
     $domains = (Get-AllDomains -Cert $Cert) -join ', '
     if ($Success -and $hasWarnings) {
-        $detail  = ($Warnings | ForEach-Object { "  - $_" }) -join "`n"
-        $subject = "Certificate issued for $($Cert.PrimaryDomain), but $(@($Warnings).Count) remote deployment(s) FAILED"
+        $detail  = ($warn | ForEach-Object { "  - $_" }) -join "`n"
+        $subject = "Certificate issued for $($Cert.PrimaryDomain), but $($warn.Count) remote deployment(s) FAILED"
         $body    = "A certificate for $domains was issued/renewed and installed locally, but the " +
                    "following remote deployment(s) failed:`n$detail`n`nValid until: $($Cert.NotAfter)`nThumbprint: $($Cert.Thumbprint)"
     } elseif ($Success) {
