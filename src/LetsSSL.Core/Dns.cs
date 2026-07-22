@@ -58,6 +58,9 @@ public sealed class DnsTxtVerifier : IDisposable
     public void Dispose() => _http.Dispose();
 }
 
+/// <summary>Result of validating an automated DNS provider's credentials.</summary>
+public sealed record DnsCredentialTestResult(bool Success, string Message);
+
 public interface IDnsProvider
 {
     /// <summary>
@@ -133,6 +136,25 @@ public sealed class CloudflareDnsProvider : IDnsProvider, IDisposable
     {
         _http = httpClient ?? new HttpClient();
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiToken);
+    }
+
+    /// <summary>Validates the API token via Cloudflare's token-verify endpoint.</summary>
+    public async Task<DnsCredentialTestResult> VerifyCredentialsAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var resp = await _http.GetAsync($"{ApiBase}/user/tokens/verify", ct);
+            var doc = await ReadResultAsync(resp, ct);
+            var status = doc.RootElement.TryGetProperty("result", out var r)
+                         && r.TryGetProperty("status", out var s) ? s.GetString() : null;
+            return string.Equals(status, "active", StringComparison.OrdinalIgnoreCase)
+                ? new DnsCredentialTestResult(true, "Cloudflare API token is valid and active.")
+                : new DnsCredentialTestResult(false, $"Cloudflare token is not active (status: {status ?? "unknown"}).");
+        }
+        catch (Exception ex)
+        {
+            return new DnsCredentialTestResult(false, ex.Message);
+        }
     }
 
     // Cloudflare creates records immediately in PublishTxtRecordAsync.
@@ -239,6 +261,22 @@ public sealed class Route53DnsProvider : IDnsProvider, IDisposable
         _secretKey = secretAccessKey;
         _hostedZoneId = string.IsNullOrWhiteSpace(hostedZoneId) ? null : hostedZoneId.Trim();
         _http = httpClient ?? new HttpClient();
+    }
+
+    /// <summary>Validates the AWS credentials by listing hosted zones (read-only).</summary>
+    public async Task<DnsCredentialTestResult> VerifyCredentialsAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var doc = await SendAsync(HttpMethod.Get, $"/{V}/hostedzone", null, ct);
+            var count = doc.Descendants(Ns + "HostedZone").Count();
+            return new DnsCredentialTestResult(true,
+                $"AWS credentials are valid — {count} hosted zone(s) accessible.");
+        }
+        catch (Exception ex)
+        {
+            return new DnsCredentialTestResult(false, ex.Message);
+        }
     }
 
     public Task PublishTxtRecordAsync(string domain, string recordName, string value, CancellationToken ct = default)

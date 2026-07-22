@@ -174,6 +174,7 @@ public class NewCertificateViewModel : ViewModelBase
                 OnPropertyChanged(nameof(ShowHttpOptions));
                 OnPropertyChanged(nameof(ShowCloudflareToken));
                 OnPropertyChanged(nameof(ShowRoute53Fields));
+                OnPropertyChanged(nameof(ShowDnsCredentialTest));
                 OnPropertyChanged(nameof(CanSubmit));
             }
         }
@@ -194,6 +195,7 @@ public class NewCertificateViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(ShowCloudflareToken));
                 OnPropertyChanged(nameof(ShowRoute53Fields));
+                OnPropertyChanged(nameof(ShowDnsCredentialTest));
                 OnPropertyChanged(nameof(CanSubmit));
             }
         }
@@ -230,6 +232,63 @@ public class NewCertificateViewModel : ViewModelBase
     public bool ShowDnsOptions => UseDns;
     public bool ShowCloudflareToken => UseDns && SelectedDnsProvider == DnsProviderType.Cloudflare;
     public bool ShowRoute53Fields => UseDns && SelectedDnsProvider == DnsProviderType.Route53;
+    /// <summary>Credential testing applies to the automated providers only.</summary>
+    public bool ShowDnsCredentialTest => ShowCloudflareToken || ShowRoute53Fields;
+
+    // ---- DNS credential test ----
+
+    private bool _isTestingDns;
+    public bool IsTestingDns { get => _isTestingDns; set => SetField(ref _isTestingDns, value); }
+
+    private string _dnsCredentialTestStatus = string.Empty;
+    public string DnsCredentialTestStatus { get => _dnsCredentialTestStatus; set => SetField(ref _dnsCredentialTestStatus, value); }
+
+    /// <summary>Validates the selected provider's credentials against its API.</summary>
+    public async Task TestDnsCredentialsAsync()
+    {
+        IsTestingDns = true;
+        DnsCredentialTestStatus = "Testing credentials…";
+        try
+        {
+            DnsCredentialTestResult result;
+            if (SelectedDnsProvider == DnsProviderType.Cloudflare)
+            {
+                if (string.IsNullOrWhiteSpace(DnsApiToken))
+                {
+                    DnsCredentialTestStatus = "Enter a Cloudflare API token first.";
+                    return;
+                }
+                using var provider = new CloudflareDnsProvider(DnsApiToken.Trim());
+                result = await provider.VerifyCredentialsAsync();
+            }
+            else if (SelectedDnsProvider == DnsProviderType.Route53)
+            {
+                if (string.IsNullOrWhiteSpace(AwsAccessKeyId) || string.IsNullOrWhiteSpace(AwsSecretAccessKey))
+                {
+                    DnsCredentialTestStatus = "Enter the AWS access key and secret first.";
+                    return;
+                }
+                using var provider = new Route53DnsProvider(
+                    AwsAccessKeyId.Trim(), AwsSecretAccessKey.Trim(),
+                    string.IsNullOrWhiteSpace(AwsHostedZoneId) ? null : AwsHostedZoneId.Trim());
+                result = await provider.VerifyCredentialsAsync();
+            }
+            else
+            {
+                DnsCredentialTestStatus = "Credential testing is only available for Cloudflare and Route 53.";
+                return;
+            }
+            DnsCredentialTestStatus = (result.Success ? "✓ " : "✗ ") + result.Message;
+        }
+        catch (Exception ex)
+        {
+            DnsCredentialTestStatus = "Test failed: " + ex.Message;
+        }
+        finally
+        {
+            IsTestingDns = false;
+        }
+    }
 
     // ---- HTTP web root ----
 

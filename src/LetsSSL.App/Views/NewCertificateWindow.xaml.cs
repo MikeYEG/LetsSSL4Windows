@@ -125,6 +125,8 @@ public partial class NewCertificateWindow : Window
         Close();
     }
 
+    private async void OnTestDnsCredentials(object sender, RoutedEventArgs e) => await _vm.TestDnsCredentialsAsync();
+
     private void OnAddRemoteTarget(object sender, RoutedEventArgs e) => _vm.AddRemoteTarget();
 
     private void OnRemoveRemoteTarget(object sender, RoutedEventArgs e)

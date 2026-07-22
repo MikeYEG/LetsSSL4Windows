@@ -48,6 +48,8 @@ $Public = @(
     'Unprotect-Secret'
     # Notifications
     'Send-TestNotification'
+    # DNS providers
+    'Test-CloudflareToken'
     # Issuance / renewal
     'Invoke-RequestAndDeploy'
     'Invoke-RenewDue'

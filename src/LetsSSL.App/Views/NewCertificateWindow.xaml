@@ -136,6 +136,16 @@
                         <TextBox Text="{Binding AwsHostedZoneId, UpdateSourceTrigger=PropertyChanged}"
                                  ctl:Placeholder.Text="Auto-detected if left blank" />
                     </StackPanel>
+
+                    <!-- Validate the automated provider's credentials against its API. -->
+                    <Button Content="Test credentials" Style="{StaticResource SecondaryButton}"
+                            HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnTestDnsCredentials"
+                            IsEnabled="{Binding IsTestingDns, Converter={StaticResource InverseBool}}"
+                            Visibility="{Binding ShowDnsCredentialTest, Converter={StaticResource BoolToVis}}"
+                            ToolTip="Check the credentials against the provider's API before requesting a certificate." />
+                    <TextBlock Text="{Binding DnsCredentialTestStatus}" Margin="0,6,0,0" TextWrapping="Wrap"
+                               FontSize="12" Foreground="{StaticResource TextMuted}"
+                               Visibility="{Binding DnsCredentialTestStatus, Converter={StaticResource NonEmptyToVis}}" />
                 </StackPanel>
 
                 <!-- IIS site(s) / binding -->
