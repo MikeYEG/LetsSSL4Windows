@@ -313,12 +313,13 @@ function Test-CloudflareToken {
     try {
         $headers = @{ Authorization = "Bearer $Token" }
         $resp = Invoke-RestMethod -Uri 'https://api.cloudflare.com/client/v4/user/tokens/verify' `
-            -Headers $headers -Method Get -TimeoutSec 30
-        if ($resp.success -and $resp.result.status -eq 'active') {
+            -Headers $headers -Method Get -TimeoutSec 30 -ErrorAction Stop
+        $status = if ($resp -and $resp.result) { $resp.result.status } else { $null }
+        if ($resp.success -and $status -eq 'active') {
             return [pscustomobject]@{ Success = $true;  Message = 'Cloudflare API token is valid and active.' }
         }
-        $status = if ($resp.result.status) { $resp.result.status } else { 'unknown' }
-        return [pscustomobject]@{ Success = $false; Message = "Cloudflare token is not active (status: $status)." }
+        $shown = if ($status) { $status } else { 'unknown' }
+        return [pscustomobject]@{ Success = $false; Message = "Cloudflare token is not active (status: $shown)." }
     } catch {
         return [pscustomobject]@{ Success = $false; Message = $_.Exception.Message }
     }

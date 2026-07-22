@@ -264,6 +264,7 @@
                             <Button Content="Test all" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
                                     Click="OnTestAllRemoteTargets"
                                     Visibility="{Binding HasRemoteTargets, Converter={StaticResource BoolToVis}}"
+                                    IsEnabled="{Binding IsTestingAll, Converter={StaticResource InverseBool}}"
                                     ToolTip="Run the WinRM pre-flight against every remote server listed above." />
                         </StackPanel>
                     </StackPanel>

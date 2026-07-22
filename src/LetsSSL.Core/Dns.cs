@@ -144,7 +144,7 @@ public sealed class CloudflareDnsProvider : IDnsProvider, IDisposable
         try
         {
             using var resp = await _http.GetAsync($"{ApiBase}/user/tokens/verify", ct);
-            var doc = await ReadResultAsync(resp, ct);
+            using var doc = await ReadResultAsync(resp, ct);
             var status = doc.RootElement.TryGetProperty("result", out var r)
                          && r.TryGetProperty("status", out var s) ? s.GetString() : null;
             return string.Equals(status, "active", StringComparison.OrdinalIgnoreCase)

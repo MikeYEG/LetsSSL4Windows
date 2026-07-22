@@ -330,36 +330,51 @@ public class NewCertificateViewModel : ViewModelBase
 
     public bool HasRemoteTargets => RemoteTargets.Count > 0;
 
+    private bool _isTestingAll;
+    /// <summary>True while a "Test all" batch is running (disables the button + rows).</summary>
+    public bool IsTestingAll { get => _isTestingAll; set => SetField(ref _isTestingAll, value); }
+
     /// <summary>Runs the WinRM pre-flight against every configured remote target.</summary>
     public async Task TestAllRemoteTargetsAsync()
     {
-        var deployer = new RemoteIisDeployer();
-        foreach (var row in RemoteTargets.ToList())
+        if (IsTestingAll) return; // re-entrancy guard
+        IsTestingAll = true;
+        // Lock the whole list up-front so per-row tests can't start mid-batch.
+        foreach (var row in RemoteTargets) row.IsTesting = true;
+        try
         {
-            var model = row.ToModel();
-            if (model is null)
+            var deployer = new RemoteIisDeployer();
+            foreach (var row in RemoteTargets.ToList())
             {
-                row.TestSucceeded = false;
-                row.TestStatus = "Enter a host name first.";
-                continue;
+                var model = row.ToModel();
+                if (model is null)
+                {
+                    row.TestSucceeded = false;
+                    row.TestStatus = "Enter a host name first.";
+                    row.IsTesting = false;
+                    continue;
+                }
+                row.TestStatus = $"Connecting to {model.Host} over WinRM…";
+                try
+                {
+                    var result = await deployer.TestConnectionAsync(model);
+                    row.TestSucceeded = result.Succeeded;
+                    row.TestStatus = result.Message;
+                }
+                catch (Exception ex)
+                {
+                    row.TestSucceeded = false;
+                    row.TestStatus = $"Test failed: {ex.Message}";
+                }
+                finally
+                {
+                    row.IsTesting = false;
+                }
             }
-            row.IsTesting = true;
-            row.TestStatus = $"Connecting to {model.Host} over WinRM…";
-            try
-            {
-                var result = await deployer.TestConnectionAsync(model);
-                row.TestSucceeded = result.Succeeded;
-                row.TestStatus = result.Message;
-            }
-            catch (Exception ex)
-            {
-                row.TestSucceeded = false;
-                row.TestStatus = $"Test failed: {ex.Message}";
-            }
-            finally
-            {
-                row.IsTesting = false;
-            }
+        }
+        finally
+        {
+            IsTestingAll = false;
         }
     }
 
