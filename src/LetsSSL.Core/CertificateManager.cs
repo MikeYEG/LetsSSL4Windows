@@ -86,6 +86,7 @@ public class CertificateManager
             // the next renewal cycle re-fetches ARI for the new certificate.
             config.AriRenewalTime = null;
             config.AriExplanationUrl = null;
+            config.AriFetchedAt = null;
             _repository.Upsert(config);
 
             // Save the PFX alongside our data so it can be re-deployed if needed.

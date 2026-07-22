@@ -1254,6 +1254,7 @@ function Invoke-RequestAndDeploy {
         # renewal can't immediately re-trigger another (next cycle re-fetches ARI).
         Set-CertProperty -Cert $Cert -Name 'AriRenewalTime'    -Value $null
         Set-CertProperty -Cert $Cert -Name 'AriExplanationUrl' -Value $null
+        Set-CertProperty -Cert $Cert -Name 'AriFetchedAt'      -Value $null
 
         if ($Cert.BindToIis -and $Cert.IisSiteName) {
             Invoke-IisBind -Cert $Cert -SiteName $Cert.IisSiteName

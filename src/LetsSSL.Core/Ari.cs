@@ -73,6 +73,14 @@ public class RenewalInfoClient : IDisposable
     private readonly bool _ownsHttp;
     private readonly ILogger<RenewalInfoClient> _logger;
 
+    // Cache of directory URI -> resolved renewalInfo endpoint (null = the CA has
+    // no ARI). Only successful directory reads are cached, so a transient failure
+    // is retried next cycle rather than disabling ARI for the client's lifetime.
+    // The client outlives a single renewal run, so this avoids one directory GET
+    // per certificate on every cycle.
+    private readonly Dictionary<string, Uri?> _endpointCache = new();
+    private readonly object _cacheLock = new();
+
     public RenewalInfoClient(HttpClient? httpClient = null, ILogger<RenewalInfoClient>? logger = null)
     {
         _http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
@@ -126,20 +134,33 @@ public class RenewalInfoClient : IDisposable
         }
     }
 
-    /// <summary>Reads the ACME directory and returns its <c>renewalInfo</c> URL, or null.</summary>
+    /// <summary>
+    /// Reads the ACME directory and returns its <c>renewalInfo</c> URL, or null.
+    /// The resolved endpoint (including a definitive "no ARI") is cached per
+    /// directory URI; a transient directory-fetch failure is not cached.
+    /// </summary>
     private async Task<Uri?> GetRenewalInfoEndpointAsync(Uri directoryUri, CancellationToken ct)
     {
+        var key = directoryUri.AbsoluteUri;
+        lock (_cacheLock)
+        {
+            if (_endpointCache.TryGetValue(key, out var cached)) return cached;
+        }
+
         using var resp = await _http.GetAsync(directoryUri, ct);
-        if (!resp.IsSuccessStatusCode) return null;
+        if (!resp.IsSuccessStatusCode) return null;   // transient: don't cache, retry next cycle
 
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        Uri? endpoint = null;
         if (doc.RootElement.TryGetProperty("renewalInfo", out var ri)
             && ri.GetString() is { } s
             && Uri.TryCreate(s, UriKind.Absolute, out var uri))
         {
-            return uri;
+            endpoint = uri;
         }
-        return null;
+
+        lock (_cacheLock) { _endpointCache[key] = endpoint; }   // cache the definitive result
+        return endpoint;
     }
 
     public void Dispose()
