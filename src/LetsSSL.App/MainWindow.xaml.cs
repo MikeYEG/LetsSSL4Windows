@@ -60,7 +60,7 @@ public partial class MainWindow : Window
 
     private void OnSettings(object sender, RoutedEventArgs e)
     {
-        var settingsVm = new SettingsViewModel(_services.Settings, _services.Updates);
+        var settingsVm = new SettingsViewModel(_services.Settings, _services.Updates, _services.Paths);
         var dialog = new SettingsWindow(settingsVm) { Owner = this };
         if (dialog.ShowDialog() == true)
         {

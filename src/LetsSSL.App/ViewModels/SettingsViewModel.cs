@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Windows;
 using LetsSSL.App.Services;
+using LetsSSL.Core;
 using LetsSSL.Core.Models;
 using LetsSSL.Core.Notifications;
 using LetsSSL.Core.Storage;
@@ -13,12 +14,14 @@ public class SettingsViewModel : ViewModelBase
 {
     private readonly SettingsRepository _repository;
     private readonly UpdateChecker _updateChecker;
+    private readonly AppPaths _paths;
     private UpdateInfo? _updateInfo;
 
-    public SettingsViewModel(SettingsRepository repository, UpdateChecker updateChecker)
+    public SettingsViewModel(SettingsRepository repository, UpdateChecker updateChecker, AppPaths paths)
     {
         _repository = repository;
         _updateChecker = updateChecker;
+        _paths = paths;
         CheckForUpdatesCommand = new AsyncRelayCommand(_ => CheckForUpdatesAsync());
         DownloadInstallCommand = new AsyncRelayCommand(_ => DownloadInstallAsync(), _ => UpdateFound);
         TestNotificationsCommand = new AsyncRelayCommand(_ => TestNotificationsAsync());
@@ -196,6 +199,39 @@ public class SettingsViewModel : ViewModelBase
         FromAddress = string.IsNullOrWhiteSpace(FromAddress) ? null : FromAddress.Trim(),
         ToAddress = string.IsNullOrWhiteSpace(ToAddress) ? null : ToAddress.Trim(),
     };
+
+    // ---- Backup / restore ----
+
+    private string _backupStatus = string.Empty;
+    public string BackupStatus { get => _backupStatus; private set => SetField(ref _backupStatus, value); }
+
+    /// <summary>Writes a backup archive of the data store to <paramref name="path"/>.</summary>
+    public void Backup(string path)
+    {
+        try
+        {
+            new ConfigBackup(_paths).Create(path);
+            BackupStatus = $"Backed up configuration to {path}.";
+        }
+        catch (Exception ex)
+        {
+            BackupStatus = "Backup failed: " + ex.Message;
+        }
+    }
+
+    /// <summary>Restores the data store from a backup archive, then reloads settings.</summary>
+    public void Restore(string path)
+    {
+        try
+        {
+            var count = new ConfigBackup(_paths).Restore(path);
+            BackupStatus = $"Restored {count} file(s). Reopen Settings and the certificate list to see the restored data.";
+        }
+        catch (Exception ex)
+        {
+            BackupStatus = "Restore failed: " + ex.Message;
+        }
+    }
 
     public void Save()
     {
