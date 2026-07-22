@@ -892,43 +892,82 @@ function Send-IssuanceNotification {
     }
     $statusText = if ($Success -and -not $hasWarnings) { 'success' } else { 'failure' }
 
+    # Deliver over the configured channels (output suppressed so it doesn't leak
+    # into a caller's pipeline, e.g. Invoke-RequestAndDeploy's returned cert).
+    $null = Send-NotificationChannels -Settings $settings -Subject $subject -Body $body `
+        -StatusText $statusText -Domain $Cert.PrimaryDomain -Label $Cert.PrimaryDomain
+}
+
+function Send-NotificationChannels {
+    # Delivers one message over every configured channel (webhook + email),
+    # returning a per-channel result object. Never throws.
+    param(
+        [Parameter(Mandatory)]$Settings,
+        [Parameter(Mandatory)][string]$Subject,
+        [Parameter(Mandatory)][string]$Body,
+        [string]$StatusText = 'success',
+        [string]$Domain = '',
+        [string]$Label = ''
+    )
+    $results = @()
+    $forLabel = if ($Label) { " for $Label" } else { '' }
+
     # Webhook
-    if (-not [string]::IsNullOrWhiteSpace($settings.WebhookUrl)) {
+    if (-not [string]::IsNullOrWhiteSpace($Settings.WebhookUrl)) {
         try {
             $payload = @{
-                text      = "[$AppName] $subject"
-                status    = $statusText
-                domain    = $Cert.PrimaryDomain
-                subject   = $subject
-                body      = $body
+                text      = "[$AppName] $Subject"
+                status    = $StatusText
+                domain    = $Domain
+                subject   = $Subject
+                body      = $Body
                 timestamp = (Get-Date).ToUniversalTime().ToString('o')
             } | ConvertTo-Json -Depth 4
-            Invoke-RestMethod -Uri $settings.WebhookUrl -Method Post -Body $payload -ContentType 'application/json' -TimeoutSec 30 | Out-Null
-            Write-Log "Sent webhook notification for $($Cert.PrimaryDomain)." 'OK'
-        } catch { Write-Log "Failed to send webhook notification: $($_.Exception.Message)" 'WARN' }
+            Invoke-RestMethod -Uri $Settings.WebhookUrl -Method Post -Body $payload -ContentType 'application/json' -TimeoutSec 30 | Out-Null
+            Write-Log "Sent webhook notification$forLabel." 'OK'
+            $results += [pscustomobject]@{ Channel = 'webhook'; Success = $true;  Error = $null }
+        } catch {
+            Write-Log "Failed to send webhook notification: $($_.Exception.Message)" 'WARN'
+            $results += [pscustomobject]@{ Channel = 'webhook'; Success = $false; Error = $_.Exception.Message }
+        }
     }
 
     # Email (SMTP)
-    if ($settings.EmailEnabled -and $settings.SmtpHost -and $settings.FromAddress -and $settings.ToAddress) {
+    if ($Settings.EmailEnabled -and $Settings.SmtpHost -and $Settings.FromAddress -and $Settings.ToAddress) {
         try {
             $mailParams = @{
-                SmtpServer = $settings.SmtpHost
-                Port       = [int]$settings.SmtpPort
-                UseSsl     = [bool]$settings.SmtpUseSsl
-                From       = $settings.FromAddress
-                To         = $settings.ToAddress
-                Subject    = "[$AppName] $subject"
-                Body       = $body
+                SmtpServer = $Settings.SmtpHost
+                Port       = [int]$Settings.SmtpPort
+                UseSsl     = [bool]$Settings.SmtpUseSsl
+                From       = $Settings.FromAddress
+                To         = $Settings.ToAddress
+                Subject    = "[$AppName] $Subject"
+                Body       = $Body
             }
-            if ($settings.SmtpUsername) {
-                $pw  = Unprotect-Secret -Stored $settings.SmtpPasswordProtected
+            if ($Settings.SmtpUsername) {
+                $pw  = Unprotect-Secret -Stored $Settings.SmtpPasswordProtected
                 $sec = ConvertTo-SecureString -String $pw -AsPlainText -Force
-                $mailParams.Credential = New-Object System.Management.Automation.PSCredential($settings.SmtpUsername, $sec)
+                $mailParams.Credential = New-Object System.Management.Automation.PSCredential($Settings.SmtpUsername, $sec)
             }
             Send-MailMessage @mailParams -ErrorAction Stop
-            Write-Log "Sent email notification for $($Cert.PrimaryDomain)." 'OK'
-        } catch { Write-Log "Failed to send email notification: $($_.Exception.Message)" 'WARN' }
+            Write-Log "Sent email notification$forLabel." 'OK'
+            $results += [pscustomobject]@{ Channel = 'email';   Success = $true;  Error = $null }
+        } catch {
+            Write-Log "Failed to send email notification: $($_.Exception.Message)" 'WARN'
+            $results += [pscustomobject]@{ Channel = 'email';   Success = $false; Error = $_.Exception.Message }
+        }
     }
+
+    return $results
+}
+
+function Send-TestNotification {
+    # Sends a test message over the configured channels; returns per-channel results.
+    param([Parameter(Mandatory)]$Settings)
+    $subject = 'LetsSSL4Windows test notification'
+    $body    = 'This is a test notification from LetsSSL4Windows. If you received it, your notification settings are working.'
+    return @(Send-NotificationChannels -Settings $Settings -Subject $subject -Body $body `
+        -StatusText 'success' -Domain 'test.example.com' -Label 'test')
 }
 
 #endregion
@@ -1496,6 +1535,23 @@ function Invoke-NotificationsMenu {
     }
     Save-Settings $s
     Write-Host "  Notification settings saved." -ForegroundColor Green
+
+    if (Read-YesNo -Prompt '  Send a test notification now?' -Default $false) {
+        $hasChannel = (-not [string]::IsNullOrWhiteSpace($n.WebhookUrl)) -or
+                      ($n.EmailEnabled -and $n.SmtpHost -and $n.FromAddress -and $n.ToAddress)
+        if (-not $hasChannel) {
+            Write-Host "  Configure a webhook URL or email (SMTP host, from and to addresses) first." -ForegroundColor Yellow
+        } else {
+            $results = @(Send-TestNotification -Settings $n)
+            if ($results.Count -eq 0) {
+                Write-Host "  No channels were configured to test." -ForegroundColor Yellow
+            }
+            foreach ($r in $results) {
+                if ($r.Success) { Write-Host "    $($r.Channel): sent" -ForegroundColor Green }
+                else            { Write-Host "    $($r.Channel): $($r.Error)" -ForegroundColor Red }
+            }
+        }
+    }
 }
 
 function Invoke-RenewMenu {

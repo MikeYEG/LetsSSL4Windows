@@ -150,6 +150,15 @@
                             <TextBox Text="{Binding ToAddress, UpdateSourceTrigger=PropertyChanged}"
                                      ctl:Placeholder.Text="you@example.com" />
                         </StackPanel>
+
+                        <!-- Test the configured channels (webhook and/or email) with the values above. -->
+                        <Button Content="Send test notification" Style="{StaticResource SecondaryButton}"
+                                HorizontalAlignment="Left" Margin="0,14,0,0"
+                                Command="{Binding TestNotificationsCommand}"
+                                ToolTip="Send a test message using the settings above (no need to save first)." />
+                        <TextBlock Text="{Binding NotificationTestStatus}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                   FontSize="12" Foreground="{StaticResource TextMuted}"
+                                   Visibility="{Binding NotificationTestStatus, Converter={StaticResource NonEmptyToVis}}" />
                     </StackPanel>
                 </Border>
             </StackPanel>

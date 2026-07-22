@@ -25,6 +25,9 @@ public interface INotifier
     Task SendAsync(NotificationMessage message, CancellationToken ct = default);
 }
 
+/// <summary>Per-channel outcome of a notification connection test.</summary>
+public sealed record NotificationTestResult(string Channel, bool Success, string? Error);
+
 /// <summary>POSTs a JSON payload to a webhook URL (Slack/Teams/Discord/custom).</summary>
 public sealed class WebhookNotifier : INotifier, IDisposable
 {
@@ -138,6 +141,44 @@ public sealed class NotificationService
                 (notifier as IDisposable)?.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// Sends a test notification over every channel configured in
+    /// <paramref name="settings"/> (regardless of the notify-on-success/failure
+    /// toggles), returning a per-channel result so the UI can report which
+    /// channels delivered. Never throws — delivery errors are captured per channel.
+    /// </summary>
+    public static async Task<IReadOnlyList<NotificationTestResult>> SendTestAsync(
+        NotificationSettings settings, CancellationToken ct = default)
+    {
+        var message = new NotificationMessage
+        {
+            Domain = "test.example.com",
+            IsFailure = false,
+            Subject = "LetsSSL4Windows test notification",
+            Body = "This is a test notification from LetsSSL4Windows. " +
+                   "If you received it, your notification settings are working.",
+        };
+
+        var results = new List<NotificationTestResult>();
+        foreach (var notifier in BuildNotifiers(settings))
+        {
+            try
+            {
+                await notifier.SendAsync(message, ct);
+                results.Add(new NotificationTestResult(notifier.Name, true, null));
+            }
+            catch (Exception ex)
+            {
+                results.Add(new NotificationTestResult(notifier.Name, false, ex.Message));
+            }
+            finally
+            {
+                (notifier as IDisposable)?.Dispose();
+            }
+        }
+        return results;
     }
 
     private static NotificationMessage BuildMessage(ManagedCertificate cert, bool success, string? error, IReadOnlyList<string>? warnings = null)

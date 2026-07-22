@@ -46,6 +46,8 @@ $Public = @(
     # Secrets
     'Protect-Secret'
     'Unprotect-Secret'
+    # Notifications
+    'Send-TestNotification'
     # Issuance / renewal
     'Invoke-RequestAndDeploy'
     'Invoke-RenewDue'
