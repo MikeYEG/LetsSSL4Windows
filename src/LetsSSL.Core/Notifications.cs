@@ -33,10 +33,12 @@ public sealed class WebhookNotifier : INotifier, IDisposable
 {
     private readonly string _url;
     private readonly HttpClient _http;
+    private readonly bool _ownsHttp;
 
     public WebhookNotifier(string url, HttpClient? httpClient = null)
     {
         _url = url;
+        _ownsHttp = httpClient is null;
         _http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
     }
 
@@ -57,7 +59,10 @@ public sealed class WebhookNotifier : INotifier, IDisposable
         resp.EnsureSuccessStatusCode();
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        if (_ownsHttp) _http.Dispose(); // never dispose an injected client
+    }
 }
 
 /// <summary>Sends notifications by email over SMTP.</summary>

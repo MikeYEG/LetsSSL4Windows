@@ -68,7 +68,7 @@ public class CertificateManager
             var result = await _acme.RequestCertificateAsync(config, environment, handler, progress, ct);
 
             progress?.Report("Installing certificate into the Windows store…");
-            var installed = _store.ImportPfx(result.PfxBytes, result.PfxPassword, config.FriendlyName);
+            using var installed = _store.ImportPfx(result.PfxBytes, result.PfxPassword, config.FriendlyName);
 
             // Save the PFX alongside our data so it can be re-deployed if needed.
             var pfxPath = _paths.PfxFileFor(config.Id);
@@ -80,6 +80,10 @@ public class CertificateManager
             config.LastRenewed = DateTimeOffset.UtcNow;
             config.PfxPath = pfxPath;
             config.LastError = null;
+
+            // Persist the successful issuance now, so a later bind/deploy step that
+            // fails or is cancelled can't lose the issued-certificate record.
+            _repository.Upsert(config);
 
             if (config.BindToIis && EffectiveSites(config).Count > 0)
             {
@@ -118,6 +122,15 @@ public class CertificateManager
             }
 
             return config;
+        }
+        catch (OperationCanceledException) when (!string.IsNullOrEmpty(config.Thumbprint))
+        {
+            // The certificate was already issued and installed; a later deploy step
+            // was cancelled. Preserve the successful record rather than reporting
+            // the whole issuance as a failure.
+            _logger.LogWarning("Deployment cancelled after {Domain} was issued and installed.", config.PrimaryDomain);
+            _repository.Upsert(config);
+            throw;
         }
         catch (Exception ex)
         {

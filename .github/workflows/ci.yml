@@ -29,3 +29,11 @@ jobs:
 
       - name: Test
         run: dotnet test tests/LetsSSL.Core.Tests/LetsSSL.Core.Tests.csproj --configuration Release --no-build --verbosity normal
+
+      - name: PowerShell tests (Pester)
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          Import-Module Pester -MinimumVersion 5.0
+          Invoke-Pester -Path powershell/tests -CI

@@ -218,6 +218,7 @@ public sealed class RemoteIisDeployer
                 $imported = @(Import-PfxCertificate -FilePath $tmp -CertStoreLocation 'Cert:\LocalMachine\My' -Password $secure -Exportable)
                 $installed = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
                 if (-not $installed) { $installed = $imported | Select-Object -First 1 }
+                if (-not $installed) { throw 'PFX import produced no certificate on the remote server.' }
 
                 if (-not [string]::IsNullOrWhiteSpace($FriendlyName)) {
                     $item = Get-Item -LiteralPath ("Cert:\LocalMachine\My\{0}" -f $installed.Thumbprint)
