@@ -131,7 +131,7 @@ Describe 'Get-AllDomains' {
         $c = New-TestCert -Domain 'www.example.com'
         $c.SubjectAlternativeNames = @(' WWW.example.com ', 'example.com', '')
         $all = Get-AllDomains -Cert $c
-        ($all | Where-Object { $_ -ieq 'www.example.com' }).Count | Should -Be 1
+        @($all | Where-Object { $_ -ieq 'www.example.com' }).Count | Should -Be 1
         $all | Should -Contain 'example.com'
         $all | Should -Not -Contain ''
     }
@@ -234,7 +234,7 @@ Describe 'Certificate store (JSON)' {
 
     It 'persists and reloads a certificate' {
         Set-Certificate -Certificate (New-TestCert -Domain 'a.example.com')
-        (Get-AllCertificates).Count | Should -Be 1
+        @(Get-AllCertificates).Count | Should -Be 1
     }
     It 'writes a JSON array even for a single certificate' {
         Set-Certificate -Certificate (New-TestCert -Domain 'a.example.com')
@@ -270,7 +270,7 @@ Describe 'Certificate store (JSON)' {
         $c = New-TestCert -Domain 'a.example.com'
         Set-Certificate -Certificate $c
         Remove-Certificate -CertId $c.Id
-        (Get-AllCertificates).Count | Should -Be 0
+        @(Get-AllCertificates).Count | Should -Be 0
     }
 }
 
@@ -278,7 +278,9 @@ Describe 'Get-CertDnsNames' -Skip:(-not ($env:OS -eq 'Windows_NT')) {
     It 'extracts the CN first, then SAN DNS names' {
         $rsa = [System.Security.Cryptography.RSA]::Create(2048)
         $req = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
-            'CN=www.example.com', $rsa, 'SHA256', 'Pkcs1')
+            'CN=www.example.com', $rsa,
+            [System.Security.Cryptography.HashAlgorithmName]::SHA256,
+            [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
         $san = [System.Security.Cryptography.X509Certificates.SubjectAlternativeNameBuilder]::new()
         $san.AddDnsName('www.example.com'); $san.AddDnsName('example.com')
         $req.CertificateExtensions.Add($san.Build())
