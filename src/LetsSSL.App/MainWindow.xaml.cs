@@ -86,7 +86,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var installed = _services.Store.FindByThumbprint(cert.Thumbprint);
+        using var installed = _services.Store.FindByThumbprint(cert.Thumbprint);
         if (installed is null)
         {
             MessageBox.Show("The certificate was not found in the Windows store. Try renewing it first.",
@@ -132,11 +132,14 @@ public partial class MainWindow : Window
                 "Bind to IIS", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        if (_services.Store.FindByThumbprint(cert.Thumbprint) is null)
+        using (var found = _services.Store.FindByThumbprint(cert.Thumbprint))
         {
-            MessageBox.Show("The certificate was not found in the Windows store. Try renewing it first.",
-                "Bind to IIS", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            if (found is null)
+            {
+                MessageBox.Show("The certificate was not found in the Windows store. Try renewing it first.",
+                    "Bind to IIS", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
         }
 
         if (!IisManager.IsIisAvailable())

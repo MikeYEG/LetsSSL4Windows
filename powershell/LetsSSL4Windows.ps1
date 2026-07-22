@@ -872,7 +872,8 @@ function Send-IssuanceNotification {
         [string[]]$Warnings   # non-fatal problems (e.g. failed remote deployments)
     )
     $settings = (Get-Settings).Notifications
-    $hasWarnings = @($Warnings | Where-Object { $_ }).Count -gt 0
+    $warn = @($Warnings | Where-Object { $_ })   # drop null/empty entries
+    $hasWarnings = $warn.Count -gt 0
     # A success carrying warnings is a partial failure: gate it on NotifyOnFailure.
     if ($Success -and -not $hasWarnings -and -not $settings.NotifyOnSuccess) { return }
     if ($Success -and $hasWarnings -and -not $settings.NotifyOnFailure) { return }
@@ -880,8 +881,8 @@ function Send-IssuanceNotification {
 
     $domains = (Get-AllDomains -Cert $Cert) -join ', '
     if ($Success -and $hasWarnings) {
-        $detail  = ($Warnings | ForEach-Object { "  - $_" }) -join "`n"
-        $subject = "Certificate issued for $($Cert.PrimaryDomain), but $(@($Warnings).Count) remote deployment(s) FAILED"
+        $detail  = ($warn | ForEach-Object { "  - $_" }) -join "`n"
+        $subject = "Certificate issued for $($Cert.PrimaryDomain), but $($warn.Count) remote deployment(s) FAILED"
         $body    = "A certificate for $domains was issued/renewed and installed locally, but the " +
                    "following remote deployment(s) failed:`n$detail`n`nValid until: $($Cert.NotAfter)`nThumbprint: $($Cert.Thumbprint)"
     } elseif ($Success) {

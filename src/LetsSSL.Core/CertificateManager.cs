@@ -70,20 +70,22 @@ public class CertificateManager
             progress?.Report("Installing certificate into the Windows store…");
             using var installed = _store.ImportPfx(result.PfxBytes, result.PfxPassword, config.FriendlyName);
 
-            // Save the PFX alongside our data so it can be re-deployed if needed.
-            var pfxPath = _paths.PfxFileFor(config.Id);
-            await File.WriteAllBytesAsync(pfxPath, result.PfxBytes, ct);
-
+            // The certificate is now in the store. Record and persist the issued
+            // state immediately — before the PFX file write and any deploy step —
+            // so a later cancellation/failure can't lose the record or misreport a
+            // false failure (the OperationCanceledException filter below keys off
+            // Thumbprint being set).
             config.Thumbprint = installed.Thumbprint;
             config.NotBefore = new DateTimeOffset(installed.NotBefore.ToUniversalTime());
             config.NotAfter = new DateTimeOffset(installed.NotAfter.ToUniversalTime());
             config.LastRenewed = DateTimeOffset.UtcNow;
-            config.PfxPath = pfxPath;
             config.LastError = null;
-
-            // Persist the successful issuance now, so a later bind/deploy step that
-            // fails or is cancelled can't lose the issued-certificate record.
             _repository.Upsert(config);
+
+            // Save the PFX alongside our data so it can be re-deployed if needed.
+            var pfxPath = _paths.PfxFileFor(config.Id);
+            await File.WriteAllBytesAsync(pfxPath, result.PfxBytes, ct);
+            config.PfxPath = pfxPath;
 
             if (config.BindToIis && EffectiveSites(config).Count > 0)
             {
