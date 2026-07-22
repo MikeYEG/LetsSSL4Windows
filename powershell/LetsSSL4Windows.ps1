@@ -57,7 +57,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('List','New','Renew','RenewDue','Bind','Export','Remove','Show',
-                 'Import','Settings','InstallTask','UninstallTask','Help','Menu')]
+                 'Import','Settings','InstallTask','UninstallTask','Backup','Restore','Help','Menu')]
     [string]$Command = 'Menu',
 
     # --- Selection ---
@@ -90,6 +90,9 @@ param(
     [string]$ExportType = 'Pfx',
     [string]$OutPath,
     [string]$PfxPassword,
+
+    # --- Backup / restore ---
+    [string]$InPath,                 # backup archive to restore from
 
     # --- Import / rescan ---
     [switch]$IncludeNonLetsEncrypt,
@@ -380,6 +383,37 @@ function Get-Settings {
 }
 
 function Save-Settings { param([Parameter(Mandatory)]$Settings) Write-Json -Path $SettingsFile -Value $Settings }
+
+function Backup-Configuration {
+    # Zips the data store (settings, certificate list, ACME account keys, and
+    # optionally the saved PFXs) for disaster recovery or moving to a new machine.
+    # DPAPI-encrypted secrets are machine-bound and must be re-entered elsewhere.
+    param([Parameter(Mandatory)][string]$Destination, [switch]$NoPfx)
+    Initialize-Paths
+    # Exclude logs, atomic-write temp files, and the destination itself (Core does
+    # the same), plus pfx when -NoPfx.
+    $destFull = [IO.Path]::GetFullPath($Destination)
+    $items = @(Get-ChildItem -LiteralPath $RootDir -Force | Where-Object {
+        $_.Name -ne 'logs' -and $_.Extension -ne '.tmp' -and
+        ([IO.Path]::GetFullPath($_.FullName) -ne $destFull) -and
+        -not ($NoPfx -and $_.Name -eq 'pfx')
+    } | Select-Object -ExpandProperty FullName)
+    if ($items.Count -eq 0) { throw "Nothing to back up in $RootDir." }
+    $dir = Split-Path -Parent ([IO.Path]::GetFullPath($Destination))
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Force }
+    Compress-Archive -Path $items -DestinationPath $Destination -Force
+    Write-Log "Backed up configuration to $Destination." 'OK'
+}
+
+function Restore-Configuration {
+    # Restores a backup archive into the data store, overwriting existing files.
+    param([Parameter(Mandatory)][string]$Source)
+    if (-not (Test-Path -LiteralPath $Source)) { throw "Backup file not found: $Source" }
+    Initialize-Paths
+    Expand-Archive -Path $Source -DestinationPath $RootDir -Force
+    Write-Log "Restored configuration from $Source." 'OK'
+}
 
 #endregion
 
@@ -1526,12 +1560,26 @@ function Invoke-SettingsMenu {
         Write-Host "   2. Contact email      : $(if ($s.ContactEmail) { $s.ContactEmail } else { '(not set)' })"
         Write-Host "   3. Auto-renewal       : $($s.EnableAutoRenewal)"
         Write-Host "   4. Notifications..."
+        Write-Host "   5. Back up configuration"
+        Write-Host "   6. Restore configuration"
         Write-Host "   0. Back"
         switch (Read-Host '  Choose') {
             '1' { $s.Environment = if ([int]$s.Environment -eq $Script:Env_Production) { $Script:Env_Staging } else { $Script:Env_Production }; Save-Settings $s; Write-Host "  Environment set to $(if ([int]$s.Environment -eq $Script:Env_Production) {'Production'} else {'Staging'})." -ForegroundColor Green }
             '2' { $s.ContactEmail = Read-Default -Prompt '  Contact email' -Default $s.ContactEmail; Save-Settings $s }
             '3' { $s.EnableAutoRenewal = Read-YesNo -Prompt '  Enable automatic renewal?' -Default $s.EnableAutoRenewal; Save-Settings $s }
             '4' { Invoke-NotificationsMenu }
+            '5' {
+                $dest = Read-Default -Prompt '  Backup file path (.zip)' -Default (Join-Path ([Environment]::GetFolderPath('Desktop')) ("LetsSSL4Windows-backup-{0}.zip" -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
+                if ($dest) { try { Backup-Configuration -Destination $dest } catch { Write-Host "  Backup failed: $($_.Exception.Message)" -ForegroundColor Red } }
+            }
+            '6' {
+                $src = Read-Default -Prompt '  Backup file to restore (.zip)'
+                if ($src) {
+                    if (Read-YesNo -Prompt '  This overwrites current settings, certificates and account keys. Continue?' -Default $false) {
+                        try { Restore-Configuration -Source $src } catch { Write-Host "  Restore failed: $($_.Exception.Message)" -ForegroundColor Red }
+                    }
+                }
+            }
             '0' { return }
             default { }
         }
@@ -1723,6 +1771,8 @@ LetsSSL4Windows (PowerShell edition)
     Import     [-IncludeNonLetsEncrypt]   Add certs in LocalMachine\My not yet tracked.
     Settings   [-Environment Staging|Production] [-ContactEmail <addr>]
     InstallTask | UninstallTask  Manage the renewal scheduled task.
+    Backup     -OutPath <path.zip>   Back up the data store to a .zip.
+    Restore    -InPath <path.zip>    Restore the data store from a backup.
     Help                         Show this help.
 
   New options:
@@ -1818,6 +1868,14 @@ function Invoke-CommandDispatch {
         }
         'InstallTask'   { Install-RenewalTask }
         'UninstallTask' { Uninstall-RenewalTask }
+        'Backup' {
+            if (-not $OutPath) { throw "-OutPath is required for -Command Backup." }
+            Backup-Configuration -Destination $OutPath
+        }
+        'Restore' {
+            if (-not $InPath) { throw "-InPath is required for -Command Restore." }
+            Restore-Configuration -Source $InPath
+        }
         'Help'          { Show-Help }
         default         { Show-Help }
     }

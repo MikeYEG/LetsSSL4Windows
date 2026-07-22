@@ -107,6 +107,10 @@ Drive any single action with `-Command <verb>` — ideal for automation:
 .\LetsSSL4Windows.ps1 -Command Export -Id www.example.com -ExportType Pem -OutPath C:\certs
 .\LetsSSL4Windows.ps1 -Command Export -Id www.example.com -ExportType Pfx -OutPath C:\certs\site.pfx -PfxPassword "secret"
 
+# Back up / restore the whole data store (settings, certs, account keys, PFXs)
+.\LetsSSL4Windows.ps1 -Command Backup  -OutPath C:\backups\letsssl.zip
+.\LetsSSL4Windows.ps1 -Command Restore -InPath  C:\backups\letsssl.zip
+
 # Settings + scheduled task
 .\LetsSSL4Windows.ps1 -Command Settings -Environment Production -ContactEmail admin@example.com
 .\LetsSSL4Windows.ps1 -Command InstallTask

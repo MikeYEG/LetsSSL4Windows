@@ -407,6 +407,13 @@ from the repository root:
   scope) so the SYSTEM renewal service can also read them.
 - Private keys are imported into the machine store as exportable; restrict access
   to the `%ProgramData%\LetsSSL4Windows` folder accordingly.
+- **Backup & restore**: **Settings → Backup & restore** saves the whole store
+  (settings, managed certificates, ACME account keys, saved PFXs) to a `.zip`
+  for disaster recovery or moving to a new machine — or use the PowerShell
+  edition's `-Command Backup -OutPath <zip>` / `-Command Restore -InPath <zip>`.
+  Note that DPAPI-encrypted secrets are machine-bound, so DNS tokens and the SMTP
+  password must be re-entered after restoring onto a *different* machine (keep
+  the backup file itself safe — it contains private keys).
 
 ## Roadmap
 
