@@ -19,19 +19,29 @@ public sealed class ConfigBackup
 
     public ConfigBackup(AppPaths paths) => _paths = paths;
 
-    /// <summary>Writes a backup archive of the store to <paramref name="destinationZipPath"/>.</summary>
+    /// <summary>
+    /// Writes a backup archive of the store to <paramref name="destinationZipPath"/>.
+    /// Captures everything under the store root (settings, certificate list, ACME
+    /// account keys for both editions — <c>accounts/</c> and <c>posh-acme/</c> —
+    /// and optionally <c>pfx/</c>), excluding the <c>logs/</c> folder.
+    /// </summary>
     public void Create(string destinationZipPath, bool includePfx = true)
     {
+        var root = Path.GetFullPath(_paths.RootDir);
         var tmp = destinationZipPath + ".tmp";
         if (File.Exists(tmp)) File.Delete(tmp);
 
         using (var zip = ZipFile.Open(tmp, ZipArchiveMode.Create))
         {
-            AddFile(zip, _paths.SettingsFile, "appsettings.json");
-            AddFile(zip, _paths.CertificatesFile, "certificates.json");
-            AddFile(zip, _paths.RenewalStatusFile, "lastrun.json");
-            AddDirectory(zip, _paths.AccountsDir, "accounts");
-            if (includePfx) AddDirectory(zip, _paths.PfxDir, "pfx");
+            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            {
+                var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
+                var top = relative.Split('/')[0];
+                if (string.Equals(top, "logs", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!includePfx && string.Equals(top, "pfx", StringComparison.OrdinalIgnoreCase)) continue;
+                if (file.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
+                zip.CreateEntryFromFile(file, relative);
+            }
         }
 
         if (File.Exists(destinationZipPath)) File.Delete(destinationZipPath);
@@ -64,17 +74,5 @@ public sealed class ConfigBackup
             restored++;
         }
         return restored;
-    }
-
-    private static void AddFile(ZipArchive zip, string path, string entryName)
-    {
-        if (File.Exists(path)) zip.CreateEntryFromFile(path, entryName);
-    }
-
-    private static void AddDirectory(ZipArchive zip, string dir, string entryPrefix)
-    {
-        if (!Directory.Exists(dir)) return;
-        foreach (var file in Directory.GetFiles(dir))
-            zip.CreateEntryFromFile(file, $"{entryPrefix}/{Path.GetFileName(file)}");
     }
 }

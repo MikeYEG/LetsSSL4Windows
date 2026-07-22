@@ -43,6 +43,9 @@ $Public = @(
     # Settings
     'Get-Settings'
     'Save-Settings'
+    # Backup / restore
+    'Backup-Configuration'
+    'Restore-Configuration'
     # Secrets
     'Protect-Secret'
     'Unprotect-Secret'
