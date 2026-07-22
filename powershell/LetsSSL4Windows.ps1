@@ -390,8 +390,13 @@ function Backup-Configuration {
     # DPAPI-encrypted secrets are machine-bound and must be re-entered elsewhere.
     param([Parameter(Mandatory)][string]$Destination, [switch]$NoPfx)
     Initialize-Paths
+    # Exclude logs, atomic-write temp files, and the destination itself (Core does
+    # the same), plus pfx when -NoPfx.
+    $destFull = [IO.Path]::GetFullPath($Destination)
     $items = @(Get-ChildItem -LiteralPath $RootDir -Force | Where-Object {
-        $_.Name -ne 'logs' -and -not ($NoPfx -and $_.Name -eq 'pfx')
+        $_.Name -ne 'logs' -and $_.Extension -ne '.tmp' -and
+        ([IO.Path]::GetFullPath($_.FullName) -ne $destFull) -and
+        -not ($NoPfx -and $_.Name -eq 'pfx')
     } | Select-Object -ExpandProperty FullName)
     if ($items.Count -eq 0) { throw "Nothing to back up in $RootDir." }
     $dir = Split-Path -Parent ([IO.Path]::GetFullPath($Destination))

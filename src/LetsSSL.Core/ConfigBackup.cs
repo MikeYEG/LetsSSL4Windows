@@ -31,10 +31,19 @@ public sealed class ConfigBackup
         var tmp = destinationZipPath + ".tmp";
         if (File.Exists(tmp)) File.Delete(tmp);
 
+        // The destination (and its temp) may sit inside the store root — never
+        // archive them, or a previous backup would bloat/corrupt the new one.
+        var destFull = Path.GetFullPath(destinationZipPath);
+        var tmpFull = Path.GetFullPath(tmp);
+
         using (var zip = ZipFile.Open(tmp, ZipArchiveMode.Create))
         {
             foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
             {
+                var full = Path.GetFullPath(file);
+                if (string.Equals(full, destFull, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(full, tmpFull, StringComparison.OrdinalIgnoreCase)) continue;
+
                 var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
                 var top = relative.Split('/')[0];
                 if (string.Equals(top, "logs", StringComparison.OrdinalIgnoreCase)) continue;

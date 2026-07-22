@@ -26,24 +26,30 @@ public class SettingsViewModel : ViewModelBase
         DownloadInstallCommand = new AsyncRelayCommand(_ => DownloadInstallAsync(), _ => UpdateFound);
         TestNotificationsCommand = new AsyncRelayCommand(_ => TestNotificationsAsync());
 
-        var s = repository.Load();
-        _isProduction = s.Environment == AcmeEnvironment.Production;
-        _contactEmail = s.ContactEmail;
-        _enableAutoRenewal = s.EnableAutoRenewal;
-        _isDarkMode = s.Theme == AppTheme.Dark;
+        LoadFromSettings();
+    }
+
+    /// <summary>Loads every field from the persisted settings (also used after a restore).</summary>
+    private void LoadFromSettings()
+    {
+        var s = _repository.Load();
+        IsProduction = s.Environment == AcmeEnvironment.Production;
+        ContactEmail = s.ContactEmail;
+        EnableAutoRenewal = s.EnableAutoRenewal;
+        IsDarkMode = s.Theme == AppTheme.Dark;
 
         var n = s.Notifications;
-        _notifyOnSuccess = n.NotifyOnSuccess;
-        _notifyOnFailure = n.NotifyOnFailure;
-        _webhookUrl = n.WebhookUrl ?? string.Empty;
-        _emailEnabled = n.EmailEnabled;
-        _smtpHost = n.SmtpHost ?? string.Empty;
-        _smtpPort = n.SmtpPort;
-        _smtpUseSsl = n.SmtpUseSsl;
-        _smtpUsername = n.SmtpUsername ?? string.Empty;
-        _smtpPassword = SecretProtector.Unprotect(n.SmtpPasswordProtected) ?? string.Empty;
-        _fromAddress = n.FromAddress ?? string.Empty;
-        _toAddress = n.ToAddress ?? string.Empty;
+        NotifyOnSuccess = n.NotifyOnSuccess;
+        NotifyOnFailure = n.NotifyOnFailure;
+        WebhookUrl = n.WebhookUrl ?? string.Empty;
+        EmailEnabled = n.EmailEnabled;
+        SmtpHost = n.SmtpHost ?? string.Empty;
+        SmtpPort = n.SmtpPort;
+        SmtpUseSsl = n.SmtpUseSsl;
+        SmtpUsername = n.SmtpUsername ?? string.Empty;
+        SmtpPassword = SecretProtector.Unprotect(n.SmtpPasswordProtected) ?? string.Empty;
+        FromAddress = n.FromAddress ?? string.Empty;
+        ToAddress = n.ToAddress ?? string.Empty;
     }
 
     // ---- General ----
@@ -51,7 +57,7 @@ public class SettingsViewModel : ViewModelBase
     private bool _isProduction;
     public bool IsProduction { get => _isProduction; set => SetField(ref _isProduction, value); }
 
-    private string _contactEmail;
+    private string _contactEmail = string.Empty;
     public string ContactEmail { get => _contactEmail; set => SetField(ref _contactEmail, value); }
 
     private bool _enableAutoRenewal;
@@ -118,13 +124,13 @@ public class SettingsViewModel : ViewModelBase
     private bool _notifyOnFailure;
     public bool NotifyOnFailure { get => _notifyOnFailure; set => SetField(ref _notifyOnFailure, value); }
 
-    private string _webhookUrl;
+    private string _webhookUrl = string.Empty;
     public string WebhookUrl { get => _webhookUrl; set => SetField(ref _webhookUrl, value); }
 
     private bool _emailEnabled;
     public bool EmailEnabled { get => _emailEnabled; set => SetField(ref _emailEnabled, value); }
 
-    private string _smtpHost;
+    private string _smtpHost = string.Empty;
     public string SmtpHost { get => _smtpHost; set => SetField(ref _smtpHost, value); }
 
     private int _smtpPort;
@@ -133,16 +139,16 @@ public class SettingsViewModel : ViewModelBase
     private bool _smtpUseSsl;
     public bool SmtpUseSsl { get => _smtpUseSsl; set => SetField(ref _smtpUseSsl, value); }
 
-    private string _smtpUsername;
+    private string _smtpUsername = string.Empty;
     public string SmtpUsername { get => _smtpUsername; set => SetField(ref _smtpUsername, value); }
 
-    private string _smtpPassword;
+    private string _smtpPassword = string.Empty;
     public string SmtpPassword { get => _smtpPassword; set => SetField(ref _smtpPassword, value); }
 
-    private string _fromAddress;
+    private string _fromAddress = string.Empty;
     public string FromAddress { get => _fromAddress; set => SetField(ref _fromAddress, value); }
 
-    private string _toAddress;
+    private string _toAddress = string.Empty;
     public string ToAddress { get => _toAddress; set => SetField(ref _toAddress, value); }
 
     // ---- Test connection ----
@@ -219,13 +225,18 @@ public class SettingsViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Restores the data store from a backup archive, then reloads settings.</summary>
+    /// <summary>
+    /// Restores the data store from a backup archive, then reloads this dialog's
+    /// fields from the restored settings so the visible values match (and a later
+    /// Save writes the restored values back rather than the pre-restore ones).
+    /// </summary>
     public void Restore(string path)
     {
         try
         {
             var count = new ConfigBackup(_paths).Restore(path);
-            BackupStatus = $"Restored {count} file(s). Reopen Settings and the certificate list to see the restored data.";
+            LoadFromSettings();
+            BackupStatus = $"Restored {count} file(s). Reopen the certificate list to see the restored certificates.";
         }
         catch (Exception ex)
         {
