@@ -88,7 +88,7 @@ renew, bind, and export certificates the desktop app created, and vice versa. Se
 - 🌐 **HTTP-01 and DNS-01 validation**, including **wildcard certificates** (`*.example.com`).
 - ☁️ **DNS providers**: Cloudflare and Route 53 (automated) and Manual, with a pluggable provider interface.
 - 🪟 **Windows-native**: installs to the `LocalMachine` certificate store and **auto-binds to IIS** with SNI.
-- 🔁 **Automatic renewal** via a background Windows Service.
+- 🔁 **Automatic renewal** via a background Windows Service, honoring the CA's **ACME Renewal Information (ARI, RFC 9773)** to renew early when advised (e.g. ahead of a revocation).
 - 🚀 **Deployment tasks**: export PFX, export PEM (`fullchain.pem` + `privkey.pem`), or run a post-issue script.
 - 📤 **On-demand export**: export any issued certificate from the dashboard as a password-protected PFX or as PEM (certificate + key).
 - 📣 **Notifications**: email (SMTP) and webhook alerts on issuance/renewal success or failure.
@@ -109,6 +109,7 @@ renew, bind, and export certificates the desktop app created, and vice versa. Se
 | Install to Windows cert store | ✅ | ✅ |
 | Auto-bind to IIS (SNI) | ✅ | ✅ |
 | Automatic renewal | ✅ | ✅ |
+| ACME Renewal Information (ARI) | ✅ | ✅ (RFC 9773) |
 | Deployment tasks | ✅ | ✅ (PFX/PEM, script) |
 | Email / webhook notifications | ✅ | ✅ |
 | Encrypted credential storage | ✅ | ✅ (DPAPI) |
@@ -231,6 +232,22 @@ Unattended renewal is handled by the **Windows Service** — see
 installation. It checks every 12 hours and reissues any certificate within its
 renewal window (default: 30 days before expiry). You can also trigger an immediate
 renewal any time with **Renew all due** in the GUI or from the tray.
+
+### CA-suggested renewal (ARI)
+
+Before each renewal check, the app asks the CA for its **ACME Renewal Information**
+([ARI, RFC 9773](https://www.rfc-editor.org/rfc/rfc9773.html)) — a per-certificate
+window telling clients when the CA would like the certificate renewed. When the CA
+suggests renewing **earlier** than the fixed 30-day window (for example, ahead of a
+mass revocation), the certificate becomes due at the suggested time, so an affected
+certificate is replaced *before* it is revoked rather than silently going invalid.
+Each certificate is assigned a stable random moment within the suggested window so
+renewals spread out instead of all firing at once.
+
+ARI is entirely advisory and only ever pulls renewal **forward**, never later than
+your date-based schedule. If the CA doesn't support ARI or the lookup fails, the app
+falls back to the normal days-before-expiry logic. The CA-suggested time is shown in
+the certificate's row tooltip once fetched. Let's Encrypt serves ARI today.
 
 ## Background service & system tray
 

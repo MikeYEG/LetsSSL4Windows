@@ -26,6 +26,7 @@ public class LetsSslServices
     public NotificationService Notifications { get; }
     public RenewalStatusStore RenewalStatusStore { get; }
     public UpdateChecker Updates { get; }
+    public RenewalInfoClient RenewalInfo { get; }
     public CertificateManager Manager { get; }
     public RenewalService Renewal { get; }
 
@@ -50,8 +51,10 @@ public class LetsSslServices
         Notifications = new NotificationService(Settings, lf.CreateLogger<NotificationService>());
         RenewalStatusStore = new RenewalStatusStore(Paths);
         Updates = new UpdateChecker();
+        RenewalInfo = new RenewalInfoClient(logger: lf.CreateLogger<RenewalInfoClient>());
         Manager = new CertificateManager(Paths, Certificates, Acme, Store, Deployment, manualDns,
             Notifications, lf.CreateLogger<CertificateManager>());
-        Renewal = new RenewalService(Certificates, Manager, RenewalStatusStore, lf.CreateLogger<RenewalService>());
+        Renewal = new RenewalService(Certificates, Manager, RenewalStatusStore, Store, RenewalInfo,
+            lf.CreateLogger<RenewalService>());
     }
 }

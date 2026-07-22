@@ -192,6 +192,21 @@ public class ManagedCertificate
     public string? LastError { get; set; }
     public string? PfxPath { get; set; }
 
+    // ---- ACME Renewal Information (ARI, RFC 9773) ----
+    /// <summary>
+    /// A renewal time chosen within the CA's ARI suggested window — a stable,
+    /// randomly selected point in [start, end], so renewals spread out instead
+    /// of all firing at the window's start. When set and reached, the
+    /// certificate is due for renewal even before the fixed days-before-expiry
+    /// threshold, which lets the CA pull renewal earlier (e.g. ahead of a
+    /// revocation). Refreshed on each renewal cycle; null until first fetched.
+    /// </summary>
+    public DateTimeOffset? AriRenewalTime { get; set; }
+    /// <summary>When the ARI window was last fetched from the CA.</summary>
+    public DateTimeOffset? AriFetchedAt { get; set; }
+    /// <summary>Optional CA-provided URL explaining why early renewal is advised.</summary>
+    public string? AriExplanationUrl { get; set; }
+
     /// <summary>Primary domain plus SANs, de-duplicated, primary first.</summary>
     [JsonIgnore]
     public IReadOnlyList<string> AllDomains
@@ -224,6 +239,11 @@ public class ManagedCertificate
     public bool IsDueForRenewal(DateTimeOffset now)
     {
         if (!AutoRenew) return false;
+        // ARI can advance renewal ahead of the fixed threshold: if the CA has
+        // suggested a renewal time that has now arrived (and the certificate is
+        // actually issued), it's due — even if the days-before-expiry window
+        // hasn't opened yet. ARI only pulls renewal earlier, never delays it.
+        if (AriRenewalTime is { } ari && NotAfter is not null && now >= ari) return true;
         var status = GetStatus(now);
         return status is CertificateStatus.NotRequested or CertificateStatus.ExpiringSoon
             or CertificateStatus.Expired or CertificateStatus.Error;
