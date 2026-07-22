@@ -133,7 +133,8 @@ Wildcard names (`*.example.com`) require DNS-01. Two providers ship today:
 
 - **Cloudflare** — paste an API token with `Zone:DNS:Edit`. Records are created
   and cleaned up automatically (renews unattended). The token is stored
-  DPAPI-encrypted.
+  DPAPI-encrypted. The New certificate wizard offers to validate the token via
+  Cloudflare's token-verify endpoint (`Test-CloudflareToken`) when you enter it.
 - **Manual** — Posh-ACME prints the exact TXT record and waits for you to create
   it (interactive only).
 

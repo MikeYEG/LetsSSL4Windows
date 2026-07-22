@@ -136,6 +136,16 @@
                         <TextBox Text="{Binding AwsHostedZoneId, UpdateSourceTrigger=PropertyChanged}"
                                  ctl:Placeholder.Text="Auto-detected if left blank" />
                     </StackPanel>
+
+                    <!-- Validate the automated provider's credentials against its API. -->
+                    <Button Content="Test credentials" Style="{StaticResource SecondaryButton}"
+                            HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnTestDnsCredentials"
+                            IsEnabled="{Binding IsTestingDns, Converter={StaticResource InverseBool}}"
+                            Visibility="{Binding ShowDnsCredentialTest, Converter={StaticResource BoolToVis}}"
+                            ToolTip="Check the credentials against the provider's API before requesting a certificate." />
+                    <TextBlock Text="{Binding DnsCredentialTestStatus}" Margin="0,6,0,0" TextWrapping="Wrap"
+                               FontSize="12" Foreground="{StaticResource TextMuted}"
+                               Visibility="{Binding DnsCredentialTestStatus, Converter={StaticResource NonEmptyToVis}}" />
                 </StackPanel>
 
                 <!-- IIS site(s) / binding -->
@@ -248,8 +258,15 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <Button Content="+ Add remote server" Style="{StaticResource SecondaryButton}"
-                                HorizontalAlignment="Left" Margin="0,4,0,0" Click="OnAddRemoteTarget" />
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <Button Content="+ Add remote server" Style="{StaticResource SecondaryButton}"
+                                    Click="OnAddRemoteTarget" />
+                            <Button Content="Test all" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                                    Click="OnTestAllRemoteTargets"
+                                    Visibility="{Binding HasRemoteTargets, Converter={StaticResource BoolToVis}}"
+                                    IsEnabled="{Binding IsTestingAll, Converter={StaticResource InverseBool}}"
+                                    ToolTip="Run the WinRM pre-flight against every remote server listed above." />
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

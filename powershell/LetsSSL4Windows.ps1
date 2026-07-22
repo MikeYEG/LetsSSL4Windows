@@ -306,6 +306,25 @@ function Unprotect-Secret {
     return [Text.Encoding]::UTF8.GetString($bytes)
 }
 
+function Test-CloudflareToken {
+    # Validates a Cloudflare API token via the token-verify endpoint.
+    # Returns an object with Success (bool) and Message.
+    param([Parameter(Mandatory)][string]$Token)
+    try {
+        $headers = @{ Authorization = "Bearer $Token" }
+        $resp = Invoke-RestMethod -Uri 'https://api.cloudflare.com/client/v4/user/tokens/verify' `
+            -Headers $headers -Method Get -TimeoutSec 30 -ErrorAction Stop
+        $status = if ($resp -and $resp.result) { $resp.result.status } else { $null }
+        if ($resp.success -and $status -eq 'active') {
+            return [pscustomobject]@{ Success = $true;  Message = 'Cloudflare API token is valid and active.' }
+        }
+        $shown = if ($status) { $status } else { 'unknown' }
+        return [pscustomobject]@{ Success = $false; Message = "Cloudflare token is not active (status: $shown)." }
+    } catch {
+        return [pscustomobject]@{ Success = $false; Message = $_.Exception.Message }
+    }
+}
+
 function New-RandomPassword {
     param([int]$Length = 24)
     $bytes = New-Object byte[] $Length
@@ -1424,6 +1443,11 @@ function Invoke-NewCertificateWizard {
             $cert.DnsProvider = $Script:Dns_Cloudflare
             $token = Read-Host '  Cloudflare API token (Zone:DNS:Edit)'
             $cert.DnsCredentialProtected = Protect-Secret -Plaintext $token
+            if ($token -and (Read-YesNo -Prompt '  Test this Cloudflare token now?' -Default $true)) {
+                $r = Test-CloudflareToken -Token $token
+                if ($r.Success) { Write-Host "    $($r.Message)" -ForegroundColor Green }
+                else            { Write-Host "    $($r.Message)" -ForegroundColor Red }
+            }
         }
     } else {
         # HTTP-01: pick an IIS site (which provides the web root) or a manual web root.
