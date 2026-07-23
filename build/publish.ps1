@@ -15,12 +15,21 @@ param(
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
     [string]$Version = "1.0.0",
-    [switch]$FrameworkDependent
+    [switch]$FrameworkDependent,
+    # Where the published .exe lands. Relative paths resolve against the repo
+    # root. The release build publishes twice: the self-contained portable exe
+    # into the default folder, and a framework-dependent build (for the
+    # installer) into a separate one.
+    [string]$OutputDir
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
-$out = Join-Path $root "build\publish"
+$out = if ($OutputDir) {
+    if ([System.IO.Path]::IsPathRooted($OutputDir)) { $OutputDir } else { Join-Path $root $OutputDir }
+} else {
+    Join-Path $root "build\publish"
+}
 
 # A running LetsSSL4Windows.exe launched from the output folder locks its files.
 # Stop only the instances running from $out (leaves the installed app/service alone).

@@ -6,24 +6,27 @@
   installer\LetsSSL4Windows.iss. The resulting installer is written to
   build\installer-output\.
 
+  The installer ships the framework-dependent build (a few MB rather than the
+  ~150 MB self-contained exe) and installs the .NET 8 Desktop Runtime on the
+  target machine if it isn't already present. For the self-contained portable
+  exe (no runtime prerequisite), run build\publish.ps1 directly.
+
   Prerequisites:
     - .NET 8 SDK
     - Inno Setup 6 (https://jrsoftware.org/isdl.php)
 .EXAMPLE
   .\build\build-installer.ps1 -Version 1.0.0
-.EXAMPLE
-  .\build\build-installer.ps1 -Version 1.0.0 -FrameworkDependent
 #>
 param(
-    [string]$Version = "1.0.0",
-    [switch]$FrameworkDependent
+    [string]$Version = "1.0.0"
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 
-# 1) Publish the executable (stamping the assembly version to match the release).
-& (Join-Path $PSScriptRoot "publish.ps1") -Version $Version -FrameworkDependent:$FrameworkDependent
+# 1) Publish the framework-dependent build the installer packages, into the
+#    folder installer\LetsSSL4Windows.iss sources from.
+& (Join-Path $PSScriptRoot "publish.ps1") -Version $Version -FrameworkDependent -OutputDir "build\publish-fd"
 
 # 2) Locate the Inno Setup compiler.
 $isccCmd = Get-Command "iscc.exe" -ErrorAction SilentlyContinue
