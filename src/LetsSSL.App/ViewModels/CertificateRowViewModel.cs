@@ -51,7 +51,17 @@ public class CertificateRowViewModel : ViewModelBase
         _ => Brushes.Gray,
     };
 
-    public string? ToolTip => Model.LastError;
+    public string? ToolTip
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrEmpty(Model.LastError)) parts.Add(Model.LastError!);
+            if (Model.AriRenewalTime is { } ari)
+                parts.Add($"CA-suggested renewal: {ari.ToLocalTime():yyyy-MM-dd HH:mm}");
+            return parts.Count > 0 ? string.Join("\n", parts) : null;
+        }
+    }
 
     public string? Thumbprint => Model.Thumbprint;
     public bool HasThumbprint => !string.IsNullOrEmpty(Model.Thumbprint);

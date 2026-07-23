@@ -80,6 +80,13 @@ public class CertificateManager
             config.NotAfter = new DateTimeOffset(installed.NotAfter.ToUniversalTime());
             config.LastRenewed = DateTimeOffset.UtcNow;
             config.LastError = null;
+            // The certificate just changed (new serial + AKI), so any prior ARI
+            // advice no longer applies. Clear it here so the stale past window
+            // that triggered this renewal can't immediately re-trigger another;
+            // the next renewal cycle re-fetches ARI for the new certificate.
+            config.AriRenewalTime = null;
+            config.AriExplanationUrl = null;
+            config.AriFetchedAt = null;
             _repository.Upsert(config);
 
             // Save the PFX alongside our data so it can be re-deployed if needed.

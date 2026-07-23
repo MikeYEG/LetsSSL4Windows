@@ -56,6 +56,11 @@ $Public = @(
     # Issuance / renewal
     'Invoke-RequestAndDeploy'
     'Invoke-RenewDue'
+    # ACME Renewal Information (ARI, RFC 9773)
+    'Get-AriCertId'
+    'Get-AriCertIdFromParts'
+    'Get-AcmeRenewalInfo'
+    'Update-RenewalInfo'
     # IIS
     'Get-IisSites'
     'Get-IisSitePhysicalPath'

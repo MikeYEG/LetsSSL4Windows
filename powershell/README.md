@@ -31,6 +31,7 @@ installs automatically if it is missing.
 | Email + webhook notifications | ✅ | ✅ |
 | Encrypted secrets (DPAPI, LocalMachine) | ✅ | ✅ (same `DPAPI:` format) |
 | Unattended renewal | ✅ (Windows Service) | ✅ (Scheduled Task) |
+| CA-suggested renewal (ARI, RFC 9773) | ✅ | ✅ |
 | Self-elevation (UAC) | ✅ (app manifest) | ✅ (relaunch via UAC) |
 | Import existing certs from the store | ➖ | ✅ (`Import` / rescan) |
 | Reusable PowerShell module API | ➖ | ✅ (`.psm1` + `.psd1`) |
@@ -126,6 +127,15 @@ Renewal"** that runs `-Command RenewDue` every 12 hours as **SYSTEM** with
 highest privileges. It re-issues any certificate inside its renewal window
 (default 30 days before expiry). Remove it with `-Command UninstallTask`, or
 manage it from the menu (**Renewal scheduled task**).
+
+Before each run, `RenewDue` fetches the CA's **ACME Renewal Information**
+([ARI, RFC 9773](https://www.rfc-editor.org/rfc/rfc9773.html)) for every issued
+certificate. When the CA suggests renewing **earlier** than the fixed window (for
+example ahead of a mass revocation), the certificate becomes due at the suggested
+time — so it's replaced before it's revoked rather than silently going invalid.
+ARI is advisory and only ever pulls renewal forward; if the CA doesn't support it
+or the lookup fails, the date-based schedule applies. The module also exposes
+`Get-AcmeRenewalInfo`, `Get-AriCertId`, and `Update-RenewalInfo` for scripting.
 
 > **Manual DNS** cannot run unattended — it needs you to create the TXT record
 > by hand. Use **Cloudflare** (or another automated provider) for hands-off

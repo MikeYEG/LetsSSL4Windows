@@ -443,6 +443,9 @@ function New-ManagedCertificate {
         LastRenewed              = $null
         LastError                = $null
         PfxPath                  = $null
+        AriRenewalTime           = $null
+        AriFetchedAt             = $null
+        AriExplanationUrl        = $null
     }
 }
 
@@ -542,8 +545,153 @@ function Get-StatusColor {
 function Test-IsDueForRenewal {
     param([Parameter(Mandatory)]$Cert, [datetime]$Now = (Get-Date).ToUniversalTime())
     if (-not $Cert.AutoRenew) { return $false }
+    # ARI can advance renewal ahead of the fixed threshold: if the CA suggested a
+    # renewal time that has now arrived (and the cert is issued), it's due now.
+    # ARI only ever pulls renewal earlier, never delays it past the date schedule.
+    $ariTime = Get-PropValue -Obj $Cert -Name 'AriRenewalTime'
+    if ($ariTime -and $Cert.NotAfter) {
+        $ari = [datetimeoffset]::Parse($ariTime).UtcDateTime
+        if ($Now -ge $ari) { return $true }
+    }
     $s = Get-CertStatus -Cert $Cert -Now $Now
     return ($s -in @($Script:St_NotRequested, $Script:St_ExpiringSoon, $Script:St_Expired, $Script:St_Error))
+}
+
+#endregion
+
+#region ----------------------------------------------------------- ACME Renewal Information (ARI, RFC 9773)
+
+# The ACME directory URL for an environment (used for the ARI lookup, which is a
+# plain GET independent of Posh-ACME's server tags).
+function Get-AcmeDirectoryUrl {
+    param([Parameter(Mandatory)][int]$EnvId)
+    if ($EnvId -eq $Script:Env_Production) {
+        return 'https://acme-v02.api.letsencrypt.org/directory'
+    }
+    return 'https://acme-staging-v02.api.letsencrypt.org/directory'
+}
+
+# Base64url (RFC 4648 §5, no padding) of a byte array.
+function ConvertTo-Base64Url {
+    param([Parameter(Mandatory)][byte[]]$Bytes)
+    return ([Convert]::ToBase64String($Bytes)).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+}
+
+# Extracts the keyIdentifier (the [0] IMPLICIT OCTET STRING) from an Authority
+# Key Identifier extension's raw DER. Parsed by hand so it works on both Windows
+# PowerShell 5.1 (.NET Framework) and PowerShell 7, without the .NET 7+
+# X509AuthorityKeyIdentifierExtension type.
+function Get-AriKeyIdentifier {
+    param([Parameter(Mandatory)][byte[]]$AkiRawData)
+    # Expect SEQUENCE (0x30) wrapping the AKI fields; the keyIdentifier is the
+    # context-specific primitive [0] tag (0x80).
+    if ($AkiRawData.Length -lt 2 -or $AkiRawData[0] -ne 0x30) {
+        throw "Unexpected Authority Key Identifier encoding."
+    }
+    $i = 2                      # skip SEQUENCE tag + length (AKI lengths are short-form here)
+    while ($i -lt $AkiRawData.Length) {
+        $tag = $AkiRawData[$i]
+        $len = $AkiRawData[$i + 1]
+        if ($tag -eq 0x80) {
+            return ,$AkiRawData[($i + 2)..($i + 1 + $len)]
+        }
+        $i += 2 + $len
+    }
+    throw "Authority Key Identifier has no keyIdentifier field; ARI is unavailable for this certificate."
+}
+
+# Builds the ARI CertID (RFC 9773 §4.1) directly from its two byte fields.
+function Get-AriCertIdFromParts {
+    param([Parameter(Mandatory)][byte[]]$KeyIdentifier, [Parameter(Mandatory)][byte[]]$Serial)
+    return (ConvertTo-Base64Url $KeyIdentifier) + '.' + (ConvertTo-Base64Url $Serial)
+}
+
+# Builds the ARI CertID for an installed X509 certificate.
+function Get-AriCertId {
+    param([Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate)
+    $akiExt = $Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.35' } | Select-Object -First 1
+    if (-not $akiExt) {
+        throw "The certificate has no Authority Key Identifier extension; ARI is unavailable for it."
+    }
+    $keyId = Get-AriKeyIdentifier -AkiRawData $akiExt.RawData
+    # GetSerialNumber() is little-endian; ARI needs the big-endian DER integer content.
+    $serial = $Certificate.GetSerialNumber()
+    [Array]::Reverse($serial)
+    return Get-AriCertIdFromParts -KeyIdentifier $keyId -Serial $serial
+}
+
+# Queries the CA's ARI endpoint for a certificate's suggested renewal window.
+# Best-effort: returns $null if the CA doesn't advertise ARI or anything fails.
+function Get-AcmeRenewalInfo {
+    param(
+        [Parameter(Mandatory)][string]$DirectoryUrl,
+        [Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
+    )
+    try {
+        $dir = Invoke-RestMethod -Uri $DirectoryUrl -Method Get -TimeoutSec 30 -ErrorAction Stop
+        $endpoint = if ($dir -and $dir.PSObject.Properties['renewalInfo']) { $dir.renewalInfo } else { $null }
+        if (-not $endpoint) { return $null }
+
+        $certId = Get-AriCertId -Certificate $Certificate
+        $url = ($endpoint.TrimEnd('/')) + '/' + $certId
+        $resp = Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 30 -ErrorAction Stop
+        if (-not ($resp -and $resp.PSObject.Properties['suggestedWindow'])) { return $null }
+
+        return [pscustomobject]@{
+            WindowStart    = [datetimeoffset]::Parse($resp.suggestedWindow.start)
+            WindowEnd      = [datetimeoffset]::Parse($resp.suggestedWindow.end)
+            ExplanationUrl = if ($resp.PSObject.Properties['explanationURL']) { $resp.explanationURL } else { $null }
+        }
+    } catch {
+        Write-Log "ARI lookup failed ($($_.Exception.Message)); using the date-based schedule." 'WARN'
+        return $null
+    }
+}
+
+# Picks a stable random instant within [start, end] to spread renewals out.
+function Get-AriRenewalTime {
+    param([Parameter(Mandatory)][datetimeoffset]$Start, [Parameter(Mandatory)][datetimeoffset]$End)
+    if ($End -le $Start) { return $Start }
+    $span = ($End - $Start).TotalSeconds
+    return $Start.AddSeconds($span * (Get-Random -Minimum 0.0 -Maximum 1.0))
+}
+
+# StrictMode-safe property set (works whether or not the property already exists
+# on a record loaded from older JSON).
+function Set-CertProperty {
+    param([Parameter(Mandatory)]$Cert, [Parameter(Mandatory)][string]$Name, $Value)
+    $Cert | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
+}
+
+# Refreshes ARI for every issued certificate before a renewal run, so a
+# CA-suggested early-renewal window is reflected in what's considered due.
+function Update-RenewalInfo {
+    param([Parameter(Mandatory)][int]$EnvId)
+    $directory = Get-AcmeDirectoryUrl -EnvId $EnvId
+    foreach ($cert in Get-AllCertificates) {
+        if ([string]::IsNullOrEmpty($cert.Thumbprint) -or -not $cert.NotAfter) { continue }
+        $x509 = Get-Item -LiteralPath ("Cert:\LocalMachine\My\{0}" -f $cert.Thumbprint) -ErrorAction SilentlyContinue
+        if (-not $x509) { continue }
+
+        $info = Get-AcmeRenewalInfo -DirectoryUrl $directory -Certificate $x509
+        if (-not $info) { continue }
+
+        # Keep a previously chosen time if it still falls inside the returned
+        # window, so the renewal moment stays stable across polls.
+        $prev = Get-PropValue -Obj $cert -Name 'AriRenewalTime'
+        $keep = $false
+        if ($prev) {
+            $prevDto = [datetimeoffset]::Parse($prev)
+            if ($prevDto -ge $info.WindowStart -and $prevDto -le $info.WindowEnd) { $keep = $true }
+        }
+        $chosen = if ($keep) { [datetimeoffset]::Parse($prev) } else { Get-AriRenewalTime -Start $info.WindowStart -End $info.WindowEnd }
+
+        Set-CertProperty -Cert $cert -Name 'AriRenewalTime'    -Value $chosen.ToString('o')
+        Set-CertProperty -Cert $cert -Name 'AriFetchedAt'      -Value ([datetimeoffset]::UtcNow.ToString('o'))
+        Set-CertProperty -Cert $cert -Name 'AriExplanationUrl' -Value $info.ExplanationUrl
+        Set-Certificate -Certificate $cert
+        Write-Log "ARI for $($cert.PrimaryDomain): renew around $($chosen.ToString('u')) (CA window $($info.WindowStart.ToString('u')) - $($info.WindowEnd.ToString('u')))." 'INFO'
+    }
 }
 
 #endregion
@@ -1101,6 +1249,12 @@ function Invoke-RequestAndDeploy {
         $Cert.LastRenewed = (Get-Date).ToUniversalTime().ToString('o')
         $Cert.PfxPath     = $destPfx
         $Cert.LastError   = $null
+        # The certificate just changed (new serial + AKI); any prior ARI advice no
+        # longer applies. Clear it so the stale past window that triggered this
+        # renewal can't immediately re-trigger another (next cycle re-fetches ARI).
+        Set-CertProperty -Cert $Cert -Name 'AriRenewalTime'    -Value $null
+        Set-CertProperty -Cert $Cert -Name 'AriExplanationUrl' -Value $null
+        Set-CertProperty -Cert $Cert -Name 'AriFetchedAt'      -Value $null
 
         if ($Cert.BindToIis -and $Cert.IisSiteName) {
             Invoke-IisBind -Cert $Cert -SiteName $Cert.IisSiteName
@@ -1152,6 +1306,11 @@ function Invoke-RenewDue {
         Write-Log "Automatic renewal is disabled in Settings; nothing to do." 'WARN'
         return
     }
+    # Pull the CA's latest renewal advice first so an ARI-advanced window is
+    # reflected in what's considered due. Advisory only - never blocks the run.
+    try { Update-RenewalInfo -EnvId ([int]$settings.Environment) }
+    catch { Write-Log "Could not refresh renewal information ($($_.Exception.Message)); using the date-based schedule." 'WARN' }
+
     $now  = (Get-Date).ToUniversalTime()
     $due  = @(Get-AllCertificates | Where-Object { Test-IsDueForRenewal -Cert $_ -Now $now })
     $succeeded = 0; $failed = 0

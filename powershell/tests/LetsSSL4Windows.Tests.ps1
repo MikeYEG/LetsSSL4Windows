@@ -176,6 +176,42 @@ Describe 'Test-IsDueForRenewal' {
         $c = New-TestCert; $c.NotAfter = (Get-Date).AddDays(5).ToUniversalTime().ToString('o')
         Test-IsDueForRenewal -Cert $c | Should -BeTrue
     }
+    It 'is true when the ARI-suggested time has passed, even if date-wise valid' {
+        $c = New-TestCert
+        $c.NotAfter = (Get-Date).AddDays(60).ToUniversalTime().ToString('o')
+        $c.AriRenewalTime = [datetimeoffset]::UtcNow.AddMinutes(-5).ToString('o')
+        Test-IsDueForRenewal -Cert $c | Should -BeTrue
+    }
+    It 'ignores a future ARI-suggested time on a valid cert' {
+        $c = New-TestCert
+        $c.NotAfter = (Get-Date).AddDays(60).ToUniversalTime().ToString('o')
+        $c.AriRenewalTime = [datetimeoffset]::UtcNow.AddDays(40).ToString('o')
+        Test-IsDueForRenewal -Cert $c | Should -BeFalse
+    }
+}
+
+Describe 'ACME Renewal Information (ARI, RFC 9773)' {
+    It 'computes the CertID from the RFC 9773 worked example' {
+        # AKI keyIdentifier and serial from RFC 9773 §4.1.
+        $aki = [byte[]]@(
+            0x69, 0x88, 0x5b, 0x6b, 0x87, 0x46, 0x40, 0x41, 0xe1, 0xb3,
+            0x7b, 0x84, 0x7b, 0xa0, 0xae, 0x2c, 0xde, 0x01, 0xc8, 0xd4)
+        $serial = [byte[]]@(0x00, 0x87, 0x65, 0x43, 0x21)
+        Get-AriCertIdFromParts -KeyIdentifier $aki -Serial $serial |
+            Should -Be 'aYhba4dGQEHhs3uEe6CuLN4ByNQ.AIdlQyE'
+    }
+    It 'produces url-safe, unpadded base64' {
+        $b = [byte[]]@(0xfb, 0xff, 0xbf)
+        $id = Get-AriCertIdFromParts -KeyIdentifier $b -Serial $b
+        $id | Should -Be '-_-_.-_-_'
+        $id | Should -Not -Match '[+/=]'
+    }
+    It 'parses the keyIdentifier out of an AKI extension DER' {
+        # SEQUENCE { [0] keyIdentifier = 01 02 03 04 }
+        $der = [byte[]]@(0x30, 0x06, 0x80, 0x04, 0x01, 0x02, 0x03, 0x04)
+        $keyId = Get-AriKeyIdentifier -AkiRawData $der
+        (([byte[]]$keyId) -join ',') | Should -Be '1,2,3,4'
+    }
 }
 
 Describe 'Get-StatusText' {
