@@ -1,7 +1,8 @@
 ; Inno Setup script for LetsSSL4Windows (single multi-mode executable).
 ; Build with: ISCC.exe /DAppVersion=1.2.3 installer\LetsSSL4Windows.iss
 ; (or run build\build-installer.ps1, which publishes then invokes ISCC).
-; Requires the file to be published first into build\publish (see build\publish.ps1).
+; Requires the framework-dependent app to be published first into build\publish-fd
+; (build\build-installer.ps1 does this; see build\publish.ps1 -FrameworkDependent).
 
 #ifndef AppVersion
   #define AppVersion "1.0.0"
@@ -128,6 +129,26 @@ begin
   DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing), SetupMessage(msgPreparingDesc), nil);
 end;
 
+{ Defence-in-depth on top of the HTTPS download: confirm the runtime installer
+  carries a valid Authenticode signature from Microsoft before running it. (A
+  pinned hash isn't usable here because the channel link floats to the latest
+  patch, whose hash changes each release.) Returns True only when the signature
+  is Valid and the signer is Microsoft. }
+function IsSignedByMicrosoft(const FileName: String): Boolean;
+var
+  ResultCode: Integer;
+  Command: String;
+begin
+  Command :=
+    '-NoProfile -ExecutionPolicy Bypass -Command "' +
+    '$ErrorActionPreference=''Stop''; try {' +
+    '$s = Get-AuthenticodeSignature -LiteralPath ''' + FileName + '''; ' +
+    'if ($s.Status -eq ''Valid'' -and $s.SignerCertificate -and ' +
+    '$s.SignerCertificate.Subject -match ''O=Microsoft Corporation'') { exit 0 } else { exit 1 }' +
+    '} catch { exit 2 }"';
+  Result := Exec('powershell.exe', Command, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   ResultCode: Integer;
@@ -153,7 +174,17 @@ begin
       end;
 
       RuntimeInstaller := ExpandConstant('{tmp}\windowsdesktop-runtime-8-win-x64.exe');
-      if Exec(RuntimeInstaller, '/install /quiet /norestart', '', SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) then
+
+      if not IsSignedByMicrosoft(RuntimeInstaller) then
+      begin
+        MsgBox('The downloaded .NET Desktop Runtime installer is not validly signed by Microsoft, so setup will not run it.', mbCriticalError, MB_OK);
+        Result := False;
+        Exit;
+      end;
+
+      { /quiet already suppresses the runtime installer's UI; SW_HIDE also keeps
+        its host window from flashing for a truly silent bootstrap. }
+      if Exec(RuntimeInstaller, '/install /quiet /norestart', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
       begin
         { 0 = success, 3010 = success but a reboot is required. }
         if (ResultCode <> 0) and (ResultCode <> 3010) then

@@ -25,11 +25,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
+$buildRoot = Join-Path $root "build"
+
+# Resolve the output folder. Clear-OutputDir below wipes this folder's contents,
+# so constrain it to $root\build — a stray -OutputDir like '..\..' must never let
+# the publish delete something outside the repo's build area.
 $out = if ($OutputDir) {
     if ([System.IO.Path]::IsPathRooted($OutputDir)) { $OutputDir } else { Join-Path $root $OutputDir }
 } else {
-    Join-Path $root "build\publish"
+    Join-Path $buildRoot "publish"
 }
+$outFull = [System.IO.Path]::GetFullPath($out)
+$buildRootFull = [System.IO.Path]::GetFullPath($buildRoot)
+if ($outFull -ne $buildRootFull -and
+    -not $outFull.StartsWith($buildRootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "OutputDir must resolve to a folder under '$buildRootFull' (got '$outFull')."
+}
+$out = $outFull
 
 # A running LetsSSL4Windows.exe launched from the output folder locks its files.
 # Stop only the instances running from $out (leaves the installed app/service alone).
