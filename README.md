@@ -74,7 +74,7 @@ both** so you can pick whichever fits your workflow:
 
 | Edition | What it is | Get it from a release |
 | --- | --- | --- |
-| **Desktop app (exe)** | A WPF dashboard + system tray + background renewal service, packaged as a Windows installer. | `LetsSSL4Windows-Setup-<version>.exe` |
+| **Desktop app (exe)** | A WPF dashboard + system tray + background renewal service. The **installer** is small and installs the .NET 8 Desktop Runtime if needed; a **self-contained portable exe** (no install, no runtime) is also in every release. | `LetsSSL4Windows-Setup-<version>.exe` (installer) or `LetsSSL4Windows-<version>.exe` (portable) |
 | **PowerShell edition (ps1)** | A single, self-contained console script — same features, no install, automated via a Scheduled Task. | `LetsSSL4Windows-<version>.ps1` (and `LetsSSL4Windows-PowerShell-<version>.zip` with the module + tests) |
 
 Both editions read and write the **same data store** (`%ProgramData%\LetsSSL4Windows`),
@@ -341,6 +341,14 @@ the renewal service, the tray companion, and the agent, then:
 - optionally starts the **tray** at login,
 - and on uninstall, stops and removes the service first.
 
+The installer is **framework-dependent**: it ships a small (~few MB) build and,
+if the **.NET 8 Desktop Runtime (x64)** isn't already on the machine, downloads
+and installs it from Microsoft during setup. This keeps the installer download an
+order of magnitude smaller than a self-contained bundle. A working internet
+connection is needed on first install only if the runtime is missing; for a
+fully offline, no-prerequisite option use the self-contained **portable exe**
+(`LetsSSL4Windows-<version>.exe`) instead.
+
 ### Build the installer locally
 
 Prerequisites: the **.NET 8 SDK** and **Inno Setup 6**. From the repo root in
@@ -348,20 +356,25 @@ PowerShell:
 
 ```powershell
 .\build\build-installer.ps1 -Version 1.0.0
-# smaller build that needs the .NET 8 Desktop Runtime on the target machine:
-.\build\build-installer.ps1 -Version 1.0.0 -FrameworkDependent
 ```
 
-The installer is written to `build\installer-output\`. By default the published
-apps are **self-contained** (win-x64), so end users don't need the .NET runtime.
-To just publish the executables without building an installer, run
-`.\build\publish.ps1` (output in `build\publish\`).
+The installer is written to `build\installer-output\` (it packages the
+framework-dependent build from `build\publish-fd\`). To publish the executables
+without building an installer, run `.\build\publish.ps1` — self-contained by
+default (output in `build\publish\`), or add `-FrameworkDependent` for the small
+build that needs the runtime on the target.
 
 ### What's in a release
 
 Each release is a **single GitHub Release** that bundles **both editions**:
 
-- **`LetsSSL4Windows-Setup-<version>.exe`** — the desktop app installer (exe edition).
+- **`LetsSSL4Windows-Setup-<version>.exe`** — the desktop app installer
+  (**recommended**; framework-dependent, so it's small and fetches the .NET 8
+  Desktop Runtime only if the machine doesn't already have it).
+- **`LetsSSL4Windows-<version>.exe`** — the same desktop app as a **self-contained
+  portable exe**: no install and no runtime prerequisite, at the cost of a much
+  larger file (it bundles the whole runtime). Use this for offline or
+  no-admin/portable scenarios.
 - **`LetsSSL4Windows-<version>.ps1`** — the standalone PowerShell script (ps1 edition).
 - **`LetsSSL4Windows-PowerShell-<version>.zip`** — the full PowerShell edition
   (script + module + README + Pester tests).

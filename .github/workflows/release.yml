@@ -57,9 +57,13 @@ jobs:
           "tag=v$v"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Releasing version $v (tag v$v)"
 
-      - name: Publish executable
+      - name: Publish portable executable (self-contained)
         shell: pwsh
         run: .\build\publish.ps1 -Version ${{ steps.ver.outputs.version }}
+
+      - name: Publish app for the installer (framework-dependent)
+        shell: pwsh
+        run: .\build\publish.ps1 -Version ${{ steps.ver.outputs.version }} -FrameworkDependent -OutputDir build/publish-fd
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
