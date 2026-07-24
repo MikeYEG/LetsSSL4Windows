@@ -1,0 +1,106 @@
+name: Bug report
+description: Something isn't working correctly in LetsSSL4Windows.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug! The details below help reproduce and fix it quickly.
+        **Please redact any secrets** (API tokens, passwords, private keys) before submitting.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+        - label: I'm on the latest release, or I've noted my version below.
+          required: true
+
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition
+      description: Which edition are you using?
+      options:
+        - Desktop app (installer)
+        - Desktop app (portable exe)
+        - PowerShell edition
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The app version — Help/About, the exe's Details tab, or the release tag.
+      placeholder: e.g. 1.0.11
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Run `winver`, or see Settings → System → About.
+      placeholder: e.g. Windows 11 23H2 / Windows Server 2022
+    validations:
+      required: true
+
+  - type: dropdown
+    id: challenge
+    attributes:
+      label: Challenge / validation type
+      description: Which validation method was in use (if relevant)?
+      options:
+        - Not applicable
+        - HTTP-01
+        - DNS-01 (Cloudflare)
+        - DNS-01 (Route 53)
+        - DNS-01 (Manual)
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, plus what you expected to happen instead.
+      placeholder: When I …, I expected …, but instead …
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact steps that trigger the problem.
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. See error …
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Event Log output
+      description: >
+        Paste any error text and relevant entries from the Windows Event Log
+        (Event Viewer → Windows Logs → Application, source "LetsSSL4Windows"),
+        or the PowerShell edition's console output. This box renders as plain
+        text — no need for backticks.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Confirmation
+      options:
+        - label: I've removed any secrets (API tokens, passwords, private keys) from the details above.
+          required: true

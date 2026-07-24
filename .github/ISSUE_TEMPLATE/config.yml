@@ -1,0 +1,6 @@
+# Require one of the structured forms above rather than a blank issue.
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation & setup help
+    url: https://github.com/MikeYEG/LetsSSL4Windows#readme
+    about: Check the README (installation, DNS-01, remote deployment, renewal) before filing — it may already cover your question.

@@ -477,7 +477,7 @@ from the repository root:
 
 Contributions are very welcome! Please:
 
-1. Open an issue to discuss substantial changes first.
+1. [Open an issue](../../issues/new/choose) to discuss substantial changes first.
 2. Fork the repo and create a feature branch.
 3. Keep `dotnet build` and `dotnet test` green (CI enforces this).
 4. Open a pull request describing the change.
