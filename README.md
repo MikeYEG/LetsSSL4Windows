@@ -87,11 +87,15 @@ renew, bind, and export certificates the desktop app created, and vice versa. Se
 - 🔐 **Let's Encrypt issuance** over ACME (RFC 8555), powered by the MIT-licensed [Certes](https://github.com/fszlin/certes) client.
 - 🌐 **HTTP-01 and DNS-01 validation**, including **wildcard certificates** (`*.example.com`).
 - ☁️ **DNS providers**: Cloudflare and Route 53 (automated) and Manual, with a pluggable provider interface.
-- 🪟 **Windows-native**: installs to the `LocalMachine` certificate store and **auto-binds to IIS** with SNI.
+- 🪟 **Windows-native**: installs to the `LocalMachine` certificate store and **auto-binds to IIS** with SNI, with an optional **friendly name** so the cert is easy to spot in IIS.
 - 🔁 **Automatic renewal** via a background Windows Service, honoring the CA's **ACME Renewal Information (ARI, RFC 9773)** to renew early when advised (e.g. ahead of a revocation).
+- 🖧 **Remote multi-server deployment**: one instance renews a certificate and distributes it to **multiple remote Windows/IIS servers** over WinRM on every renewal — a single source of truth for a whole fleet.
 - 🚀 **Deployment tasks**: export PFX, export PEM (`fullchain.pem` + `privkey.pem`), or run a post-issue script.
 - 📤 **On-demand export**: export any issued certificate from the dashboard as a password-protected PFX or as PEM (certificate + key).
-- 📣 **Notifications**: email (SMTP) and webhook alerts on issuance/renewal success or failure.
+- 📣 **Notifications**: email (SMTP) and webhook alerts on issuance/renewal success or failure, with a **Send test notification** button to verify delivery.
+- ✅ **Connection testing**: validate DNS-provider credentials and remote-server (WinRM) reachability *before* you rely on them.
+- 💾 **Backup & restore**: save the entire configuration (settings, managed certs, ACME account keys, PFXs) to a single `.zip` and restore it on another machine.
+- 📝 **Windows Event Log**: issuance, renewal, and errors are written to the Event Log for monitoring and auditing.
 - 🔒 **Encrypted secrets**: DNS API tokens and SMTP passwords are stored with Windows DPAPI.
 - 🖥️ **Clean WPF dashboard** with a runtime-switchable dark/light theme, live activity log, and a guided New Certificate wizard.
 - 🧰 **Background Windows Service** + **system-tray companion** for hands-off, always-on renewal and quick control.
@@ -110,8 +114,10 @@ renew, bind, and export certificates the desktop app created, and vice versa. Se
 | Auto-bind to IIS (SNI) | ✅ | ✅ |
 | Automatic renewal | ✅ | ✅ |
 | ACME Renewal Information (ARI) | ✅ | ✅ (RFC 9773) |
+| Remote multi-server deployment | ✅ | ✅ (WinRM, one → many IIS) |
 | Deployment tasks | ✅ | ✅ (PFX/PEM, script) |
 | Email / webhook notifications | ✅ | ✅ |
+| Configuration backup & restore | ✅ | ✅ (single `.zip`) |
 | Encrypted credential storage | ✅ | ✅ (DPAPI) |
 | Dashboard GUI | ✅ | ✅ |
 | **License** | Freemium / commercial | **MIT (free)** |
@@ -224,6 +230,10 @@ case you most want to know about). Configure channels in **Settings → Notifica
 
 Choose whether to notify on success, on failure, or both. Notifications are
 best-effort — a delivery failure is logged and never blocks issuance.
+
+Use **Send test notification** in the settings to fire a sample alert through the
+configured channels and confirm they're wired up correctly before you depend on
+them. (The PowerShell edition exposes the same check via `Send-TestNotification`.)
 
 ## Automatic renewal
 
@@ -450,8 +460,17 @@ from the repository root:
 - [x] Background Windows service with a system-tray companion
 - [x] Light/dark theme toggle
 - [x] Route 53 (AWS) DNS provider
+- [x] Friendly names on IIS import
+- [x] Remote multi-server IIS deployment over WinRM
+- [x] Windows Event Log integration
+- [x] Send-test / connection testing (notifications, DNS credentials, remote targets)
+- [x] Configuration backup & restore
+- [x] ACME Renewal Information (ARI, RFC 9773)
+- [x] Small framework-dependent installer (runtime bootstrap)
+- [ ] Custom ACME directory + External Account Binding (EAB) — additional CAs (e.g. ZeroSSL, Buypass, Google Trust Services)
+- [ ] Standalone HTTP-01 listener (no web root / non-IIS hosts)
+- [ ] Code signing (removes SmartScreen prompts)
 - [ ] More DNS providers (Azure DNS, Google Cloud DNS)
-- [ ] Additional ACME CAs (e.g. ZeroSSL, Buypass)
 - [ ] More deployment task types
 
 ## Contributing

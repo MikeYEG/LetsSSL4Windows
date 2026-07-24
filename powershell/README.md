@@ -203,7 +203,8 @@ Configure email (SMTP) and/or a webhook (Slack/Teams/Discord/custom) under
 **Settings → Notifications**, and choose whether to notify on success, failure,
 or both. The webhook payload is `{ text, status, domain, subject, body,
 timestamp }`. The SMTP password is stored DPAPI-encrypted. Delivery is
-best-effort and never blocks issuance.
+best-effort and never blocks issuance. Run `Send-TestNotification` (from the
+menu or the module) to fire a sample alert and confirm the channels work.
 
 ## Notes & caveats
 
