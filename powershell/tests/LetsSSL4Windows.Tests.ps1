@@ -265,6 +265,61 @@ Describe 'DPAPI secret protection' -Skip:(-not ($env:OS -eq 'Windows_NT')) {
     }
 }
 
+Describe 'DNS-01 record journal' {
+    BeforeEach {
+        # Start each test from an empty journal.
+        if (Test-Path -LiteralPath $Script:DnsJournalFile) {
+            Remove-Item -LiteralPath $Script:DnsJournalFile -Force
+        }
+    }
+
+    It 'is empty when nothing has been recorded' {
+        @(Get-DnsRecordJournal).Count | Should -Be 0
+    }
+
+    It 'records an outstanding record and persists it' {
+        Add-DnsRecordJournalEntry -Domain 'example.com' -RecordName '_acme-challenge.example.com' `
+            -Value 'abc' -CertificateId 'cert1' | Out-Null
+
+        $all = @(Get-DnsRecordJournal)
+        $all.Count            | Should -Be 1
+        $all[0].RecordName    | Should -Be '_acme-challenge.example.com'
+        $all[0].Value         | Should -Be 'abc'
+        $all[0].CertificateId | Should -Be 'cert1'
+        $all[0].Id            | Should -Match '^[0-9a-f]{32}$'
+    }
+
+    It 'does not record the same record twice' {
+        Add-DnsRecordJournalEntry -Domain 'example.com' -RecordName '_acme-challenge.example.com' -Value 'abc' | Out-Null
+        Add-DnsRecordJournalEntry -Domain 'example.com' -RecordName '_acme-challenge.example.com' -Value 'abc' | Out-Null
+        @(Get-DnsRecordJournal).Count | Should -Be 1
+    }
+
+    It 'treats a different value at the same name as a separate record' {
+        Add-DnsRecordJournalEntry -Domain 'example.com' -RecordName '_acme-challenge.example.com' -Value 'abc' | Out-Null
+        Add-DnsRecordJournalEntry -Domain 'example.com' -RecordName '_acme-challenge.example.com' -Value 'def' | Out-Null
+        @(Get-DnsRecordJournal).Count | Should -Be 2
+    }
+
+    It 'dismisses only the requested record' {
+        $a = Add-DnsRecordJournalEntry -Domain 'a.example.com' -RecordName '_acme-challenge.a.example.com' -Value '1'
+        $b = Add-DnsRecordJournalEntry -Domain 'b.example.com' -RecordName '_acme-challenge.b.example.com' -Value '2'
+
+        Remove-DnsRecordJournalEntry -Id $a.Id
+
+        $all = @(Get-DnsRecordJournal)
+        $all.Count     | Should -Be 1
+        $all[0].Id     | Should -Be $b.Id
+    }
+
+    It 'writes a journal the .NET edition can read (array of entries)' {
+        Add-DnsRecordJournalEntry -Domain 'example.com' -RecordName '_acme-challenge.example.com' -Value 'abc' | Out-Null
+        $raw = Get-Content -LiteralPath $Script:DnsJournalFile -Raw
+        $raw.TrimStart()[0] | Should -Be '['
+        ($raw | ConvertFrom-Json)[0].PSObject.Properties.Name | Should -Contain 'RecordName'
+    }
+}
+
 Describe 'Certificate store (JSON)' {
     BeforeEach { Save-AllCertificates -Certificates @() }
 

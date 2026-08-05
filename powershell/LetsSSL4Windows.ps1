@@ -57,7 +57,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet('List','New','Renew','RenewDue','Bind','Export','Remove','Show',
-                 'Import','Settings','InstallTask','UninstallTask','Backup','Restore','Help','Menu')]
+                 'Import','Settings','InstallTask','UninstallTask','Backup','Restore',
+                 'DnsRecords','Help','Menu')]
     [string]$Command = 'Menu',
 
     # --- Selection ---
@@ -117,6 +118,8 @@ $Script:PoshAcmeHome  = Join-Path $RootDir 'posh-acme'
 $Script:SettingsFile  = Join-Path $RootDir 'appsettings.json'
 $Script:CertsFile     = Join-Path $RootDir 'certificates.json'
 $Script:LastRunFile   = Join-Path $RootDir 'lastrun.json'
+# DNS-01 TXT records created but not confirmed removed (shared with the .NET edition).
+$Script:DnsJournalFile = Join-Path $RootDir 'dns-records.json'
 $Script:TaskName      = 'LetsSSL4Windows Renewal'
 
 # Windows Event Log (Event Viewer) target. Entries appear under Windows Logs >
@@ -691,6 +694,153 @@ function Update-RenewalInfo {
         Set-CertProperty -Cert $cert -Name 'AriExplanationUrl' -Value $info.ExplanationUrl
         Set-Certificate -Certificate $cert
         Write-Log "ARI for $($cert.PrimaryDomain): renew around $($chosen.ToString('u')) (CA window $($info.WindowStart.ToString('u')) - $($info.WindowEnd.ToString('u')))." 'INFO'
+    }
+}
+
+#endregion
+
+#region ----------------------------------------------------------- DNS-01 record journal
+
+<#
+    DNS-01 validation publishes _acme-challenge TXT records that are meant to be
+    deleted straight after validation. When cleanup fails - or a run is
+    interrupted - the record is left behind in the zone with nothing recording
+    that fact, and stale records accumulate at the same name over successive
+    renewals.
+
+    This edition delegates DNS-01 to Posh-ACME, so it does not create or delete
+    those records itself and cannot journal them at creation time. Instead it
+    VERIFIES against public DNS after issuance: any _acme-challenge record still
+    resolving is recorded as outstanding. That checks reality rather than our own
+    bookkeeping. The journal file is shared with the desktop edition.
+#>
+
+function Get-DnsRecordJournal {
+    # All outstanding DNS-01 records, newest first.
+    $data = Read-Json -Path $DnsJournalFile -Default @()
+    if ($null -eq $data) { return @() }
+    return @($data | Sort-Object -Property CreatedUtc -Descending)
+}
+
+function Save-DnsRecordJournal {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Entries)
+    Write-Json -Path $DnsJournalFile -Value $Entries -AsArray
+}
+
+function Add-DnsRecordJournalEntry {
+    param(
+        [Parameter(Mandatory)][string]$Domain,
+        [Parameter(Mandatory)][string]$RecordName,
+        [string]$Value,
+        [string]$CertificateId,
+        [int]$Provider = 0,
+        [string]$Note
+    )
+    $all = @(Get-DnsRecordJournal)
+    # Don't list the same record twice across repeated runs.
+    $existing = $all | Where-Object { $_.RecordName -eq $RecordName -and $_.Value -eq $Value } | Select-Object -First 1
+    if ($existing) { return $existing }
+
+    $entry = [pscustomobject]@{
+        Id                = [guid]::NewGuid().ToString('N')
+        Provider          = $Provider
+        CertificateId     = $CertificateId
+        Domain            = $Domain
+        RecordName        = $RecordName
+        Value             = $Value
+        ProviderRef       = $null
+        CreatedUtc        = [datetimeoffset]::UtcNow.ToString('o')
+        LastCleanupError  = $Note
+    }
+    $all += $entry
+    Save-DnsRecordJournal -Entries $all
+    return $entry
+}
+
+function Remove-DnsRecordJournalEntry {
+    # Forgets a record (for one already deleted from the zone).
+    param([Parameter(Mandatory)][string]$Id)
+    $all = @(Get-DnsRecordJournal | Where-Object { $_.Id -ne $Id })
+    Save-DnsRecordJournal -Entries $all
+}
+
+function Get-PublishedAcmeTxtValue {
+    # Queries public DNS (DoH) for the TXT values at a record name. Best-effort:
+    # returns an empty array if the lookup itself fails.
+    param([Parameter(Mandatory)][string]$RecordName)
+    try {
+        $uri  = "https://dns.google/resolve?name=$([uri]::EscapeDataString($RecordName))&type=TXT"
+        $resp = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 20 -ErrorAction Stop
+        if (-not ($resp -and $resp.PSObject.Properties['Answer'])) { return @() }
+        return @($resp.Answer | ForEach-Object {
+            if ($_.PSObject.Properties['data']) { ($_.data -replace '" "', '').Trim('"') }
+        } | Where-Object { $_ })
+    } catch {
+        Write-Log "Could not check DNS for $RecordName ($($_.Exception.Message))." 'WARN'
+        return @()
+    }
+}
+
+function Test-DnsChallengeCleanup {
+    <#
+        After a DNS-01 issuance, checks whether any _acme-challenge TXT record is
+        still published for the certificate's domains and journals what it finds.
+        Returns the records still outstanding.
+    #>
+    param([Parameter(Mandatory)]$Cert)
+
+    $outstanding = @()
+    foreach ($domain in @(Get-AllDomains -Cert $Cert)) {
+        $bare   = $domain -replace '^\*\.', ''      # wildcard and apex share one record name
+        $record = "_acme-challenge.$bare"
+        $values = @(Get-PublishedAcmeTxtValue -RecordName $record)
+        if ($values.Count -eq 0) { continue }
+
+        foreach ($value in $values) {
+            $entry = Add-DnsRecordJournalEntry -Domain $domain -RecordName $record -Value $value `
+                        -CertificateId $Cert.Id -Provider ([int]$Cert.DnsProvider) `
+                        -Note 'Still published after issuance - delete this TXT record in your DNS provider, then dismiss it.'
+            $outstanding += $entry
+        }
+        Write-Log ("DNS-01 TXT record $record is still published after issuance " +
+                   "($($values.Count) value(s)); recorded as outstanding.") 'WARN'
+    }
+
+    if ($outstanding.Count -eq 0) {
+        Write-Log "DNS-01 challenge records for $($Cert.PrimaryDomain) were cleaned up." 'OK'
+    }
+    return $outstanding
+}
+
+function Show-OutstandingDnsRecord {
+    # Console view of outstanding DNS-01 records, with a dismiss option.
+    Initialize-Paths
+    $all = @(Get-DnsRecordJournal)
+    if ($all.Count -eq 0) {
+        Write-Host "`n  No outstanding DNS-01 records - nothing left behind.`n" -ForegroundColor Green
+        return
+    }
+
+    Write-Host "`n  Outstanding DNS-01 TXT records ($($all.Count)):`n" -ForegroundColor Yellow
+    $i = 1
+    foreach ($e in $all) {
+        Write-Host ("   {0}. {1}" -f $i, $e.RecordName) -ForegroundColor White
+        Write-Host ("      value   : {0}" -f $e.Value) -ForegroundColor Gray
+        Write-Host ("      domain  : {0}   created: {1}" -f $e.Domain, $e.CreatedUtc) -ForegroundColor Gray
+        if ($e.LastCleanupError) { Write-Host ("      note    : {0}" -f $e.LastCleanupError) -ForegroundColor DarkYellow }
+        $i++
+    }
+    Write-Host "`n  These may still exist in your DNS zone. Delete them there, then dismiss them here.`n" -ForegroundColor Gray
+
+    if (Read-YesNo -Prompt '  Dismiss one of these now?' -Default $false) {
+        $sel = Read-Host "  Number to dismiss (1-$($all.Count))"
+        $idx = 0
+        if ([int]::TryParse($sel, [ref]$idx) -and $idx -ge 1 -and $idx -le $all.Count) {
+            Remove-DnsRecordJournalEntry -Id $all[$idx - 1].Id
+            Write-Host "  Dismissed.`n" -ForegroundColor Green
+        } else {
+            Write-Host "  Not a valid selection.`n" -ForegroundColor Yellow
+        }
     }
 }
 
@@ -1279,6 +1429,20 @@ function Invoke-RequestAndDeploy {
         if (@($Cert.DeploymentTasks).Count -gt 0) {
             Write-Log "Running deployment tasks..." 'STEP'
             Invoke-DeploymentTasks -Cert $Cert -PfxPath $destPfx -PfxPassword $pfxPass -Installed $installed
+        }
+
+        # Verify the DNS-01 challenge records were actually cleaned up. Posh-ACME
+        # owns their lifecycle, so check public DNS rather than trust bookkeeping;
+        # anything still published is journaled so it can't rot unnoticed.
+        if ([int]$Cert.ChallengeType -eq $Script:Ch_Dns01) {
+            try {
+                $left = @(Test-DnsChallengeCleanup -Cert $Cert)
+                foreach ($o in $left) {
+                    $remoteWarnings += "DNS record $($o.RecordName) is still published and may need manual removal."
+                }
+            } catch {
+                Write-Log "Could not verify DNS-01 cleanup ($($_.Exception.Message))." 'WARN'
+            }
         }
 
         Set-Certificate -Certificate $Cert
@@ -1888,6 +2052,7 @@ function Start-Menu {
         Write-Host "   9. Settings"
         Write-Host "  10. Renewal scheduled task"
         Write-Host "  11. Import / rescan existing certificates"
+        Write-Host "  12. Outstanding DNS-01 records"
         Write-Host "   0. Exit"
         switch (Read-Host "`n  Choose") {
             '1'  { Show-CertificateTable }
@@ -1901,6 +2066,7 @@ function Start-Menu {
             '9'  { Invoke-SettingsMenu }
             '10' { Invoke-TaskMenu }
             '11' { Invoke-ImportMenu }
+            '12' { Show-OutstandingDnsRecord }
             '0'  { Write-Host "  Goodbye.`n"; return }
             default { Write-Host "  Unknown choice." -ForegroundColor Yellow }
         }
@@ -1932,6 +2098,7 @@ LetsSSL4Windows (PowerShell edition)
     InstallTask | UninstallTask  Manage the renewal scheduled task.
     Backup     -OutPath <path.zip>   Back up the data store to a .zip.
     Restore    -InPath <path.zip>    Restore the data store from a backup.
+    DnsRecords                   List DNS-01 TXT records that may still be published.
     Help                         Show this help.
 
   New options:
@@ -2035,6 +2202,7 @@ function Invoke-CommandDispatch {
             if (-not $InPath) { throw "-InPath is required for -Command Restore." }
             Restore-Configuration -Source $InPath
         }
+        'DnsRecords'    { Show-OutstandingDnsRecord }
         'Help'          { Show-Help }
         default         { Show-Help }
     }

@@ -156,6 +156,28 @@ Posh-ACME supports [many more DNS providers](https://poshac.me/docs/v4/Plugins/)
 To add one, extend `Invoke-RequestAndDeploy` with the provider's plugin name and
 plugin args.
 
+### Tracking the TXT records that get created
+
+Challenge TXT records are supposed to be deleted right after validation, but a
+failed cleanup leaves one behind in your zone with nothing recording it — and
+stale records accumulate at the same name across renewals.
+
+This edition delegates DNS-01 to Posh-ACME, so it doesn't create or delete those
+records itself and can't journal them at creation time. Instead, after every
+DNS-01 issuance it **verifies against public DNS**: any `_acme-challenge` record
+still resolving is logged as a warning and recorded in `dns-records.json` (the
+same journal the desktop edition uses). That checks reality rather than trusting
+bookkeeping.
+
+```powershell
+# List outstanding records (and optionally dismiss one)
+.\LetsSSL4Windows.ps1 -Command DnsRecords
+```
+
+Anything listed may still exist in your DNS zone — delete it there, then dismiss
+it. The module also exposes `Get-DnsRecordJournal`, `Remove-DnsRecordJournalEntry`,
+and `Test-DnsChallengeCleanup` for scripting.
+
 ## Deployment tasks
 
 After issuance you can run post-issue tasks (stored per certificate in
