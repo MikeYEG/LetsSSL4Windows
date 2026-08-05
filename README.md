@@ -193,8 +193,8 @@ confirmed. So the record survives a crash, a service restart, or a failed cleanu
 
 Records are normally deleted immediately after validation and the file stays
 empty. Anything left in it is a record that may still exist in your DNS zone, and
-it's surfaced in **Settings → Outstanding DNS-01 records** with its age and the
-reason cleanup failed. From there you can **Retry removal** (deletes them using
+it's surfaced in **Settings → Outstanding DNS-01 records** with when it was
+created and why cleanup failed. From there you can **Retry removal** (deletes them using
 the same credentials that created them) or **Dismiss** a record you've already
 deleted yourself. This matters because stale TXT records pile up at the *same*
 record name over successive renewals and can eventually interfere with validation.

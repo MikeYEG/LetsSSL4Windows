@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+using System.Text.Json;
 using LetsSSL.Core.Models;
 using LetsSSL.Core.Storage;
 using Microsoft.Extensions.Logging;
@@ -44,10 +44,6 @@ public class DnsJournalEntry
 
     /// <summary>Set when a cleanup attempt failed, so the reason is visible.</summary>
     public string? LastCleanupError { get; set; }
-
-    /// <summary>How long this record has been outstanding.</summary>
-    [JsonIgnore]
-    public TimeSpan Age => DateTimeOffset.UtcNow - CreatedUtc;
 }
 
 /// <summary>
@@ -57,10 +53,21 @@ public class DnsJournalEntry
 /// </summary>
 public class DnsRecordJournal
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+    };
+
     private readonly AppPaths _paths;
+    private readonly ILogger _logger;
     private readonly object _gate = new();
 
-    public DnsRecordJournal(AppPaths paths) => _paths = paths;
+    public DnsRecordJournal(AppPaths paths, ILogger? logger = null)
+    {
+        _paths = paths;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+    }
 
     public IReadOnlyList<DnsJournalEntry> GetAll()
     {
@@ -114,8 +121,43 @@ public class DnsRecordJournal
         }
     }
 
-    private List<DnsJournalEntry> ReadUnlocked() =>
-        JsonFile.Read(_paths.DnsJournalFile, () => new List<DnsJournalEntry>());
+    /// <summary>
+    /// Reads the journal. A malformed file is <em>preserved</em> alongside as
+    /// ".corrupt-{timestamp}" and reported, rather than being silently treated as
+    /// "no outstanding records" — quietly discarding it would hide exactly the
+    /// orphaned records this journal exists to make visible.
+    /// </summary>
+    private List<DnsJournalEntry> ReadUnlocked()
+    {
+        var path = _paths.DnsJournalFile;
+        if (!File.Exists(path)) return new List<DnsJournalEntry>();
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<DnsJournalEntry>>(File.ReadAllText(path), JsonOptions)
+                   ?? new List<DnsJournalEntry>();
+        }
+        catch (Exception ex) when (ex is JsonException or IOException)
+        {
+            var quarantine = $"{path}.corrupt-{DateTime.UtcNow:yyyyMMddHHmmss}";
+            try
+            {
+                File.Move(path, quarantine);
+                _logger.LogError(ex,
+                    "The DNS record journal at {Path} could not be read and was preserved as {Quarantine}. " +
+                    "Outstanding DNS-01 records recorded in it are no longer listed — inspect that file if " +
+                    "you need to find records still published in your DNS zone.",
+                    path, quarantine);
+            }
+            catch (Exception moveEx)
+            {
+                _logger.LogError(moveEx,
+                    "The DNS record journal at {Path} could not be read or preserved. It is being treated as empty.",
+                    path);
+            }
+            return new List<DnsJournalEntry>();
+        }
+    }
 
     private void WriteUnlocked(List<DnsJournalEntry> entries) =>
         JsonFile.Write(_paths.DnsJournalFile, entries);

@@ -459,14 +459,34 @@ public sealed class Route53DnsProvider : IDnsProvider, IDisposable
     }
 
     /// <summary>
-    /// Deletes a single journaled TXT value. Route 53 deletes whole record sets, so
-    /// the value is passed explicitly to rebuild the set being removed.
+    /// Removes a single journaled TXT value from the record set at
+    /// <paramref name="recordName"/>.
     /// </summary>
+    /// <remarks>
+    /// Route 53 operates on whole record sets, and a DELETE must submit the set
+    /// exactly as it currently exists (same TTL and every value) or the change is
+    /// rejected. A <c>_acme-challenge</c> name commonly holds more than one value
+    /// (a wildcard and its apex share one name), so this reads the live set first
+    /// and then either deletes it outright, or UPSERTs it back without our value
+    /// when other values are still present — never disturbing records we didn't
+    /// create. A set that is already gone counts as cleaned up.
+    /// </remarks>
     public async Task DeleteRecordAsync(string? zoneId, string recordName, string value, CancellationToken ct = default)
     {
         var name = recordName.TrimEnd('.');
         var zone = zoneId ?? _hostedZoneId ?? await FindZoneIdAsync(name, ct);
-        await ChangeAsync(zone, name, new[] { value }, "DELETE", ct);
+
+        var current = await GetTxtRecordSetAsync(zone, name, ct);
+        if (current is null) return;                       // already gone
+
+        var (values, ttl) = current.Value;
+        if (!values.Contains(value, StringComparer.Ordinal)) return;   // our value is already gone
+
+        var remaining = values.Where(v => !string.Equals(v, value, StringComparison.Ordinal)).ToArray();
+        if (remaining.Length == 0)
+            await ChangeAsync(zone, name, values, "DELETE", ct, ttl);      // exact current set
+        else
+            await ChangeAsync(zone, name, remaining, "UPSERT", ct, ttl);   // drop only ours
     }
 
     /// <summary>Finds the hosted zone whose name is the longest suffix of the record name.</summary>
@@ -491,7 +511,7 @@ public sealed class Route53DnsProvider : IDnsProvider, IDisposable
             $"No Route 53 hosted zone found for '{recordName}'. Enter the Hosted Zone ID or check the AWS credentials.");
     }
 
-    private async Task<string?> ChangeAsync(string zoneId, string name, string[] values, string action, CancellationToken ct)
+    private async Task<string?> ChangeAsync(string zoneId, string name, string[] values, string action, CancellationToken ct, int ttl = 60)
     {
         var records = string.Concat(values.Select(v =>
             $"<ResourceRecord><Value>{XmlEscape("\"" + v + "\"")}</Value></ResourceRecord>"));
@@ -499,10 +519,38 @@ public sealed class Route53DnsProvider : IDnsProvider, IDisposable
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
             $"<ChangeResourceRecordSetsRequest xmlns=\"{Ns}\"><ChangeBatch><Changes><Change>" +
             $"<Action>{action}</Action><ResourceRecordSet><Name>{XmlEscape(name)}</Name>" +
-            "<Type>TXT</Type><TTL>60</TTL>" +
+            $"<Type>TXT</Type><TTL>{ttl}</TTL>" +
             $"<ResourceRecords>{records}</ResourceRecords></ResourceRecordSet></Change></Changes></ChangeBatch></ChangeResourceRecordSetsRequest>";
         var doc = await SendAsync(HttpMethod.Post, $"/{V}/hostedzone/{zoneId}/rrset", body, ct);
         return ((string?)doc.Descendants(Ns + "Id").FirstOrDefault())?.Replace("/change/", string.Empty);
+    }
+
+    /// <summary>
+    /// Reads the current TXT record set at <paramref name="name"/>, or null if
+    /// there isn't one. Values are returned unquoted, matching what callers pass in.
+    /// </summary>
+    private async Task<(string[] Values, int Ttl)?> GetTxtRecordSetAsync(string zoneId, string name, CancellationToken ct)
+    {
+        var query = $"/{V}/hostedzone/{zoneId}/rrset?name={Uri.EscapeDataString(name)}&type=TXT&maxitems=1";
+        var doc = await SendAsync(HttpMethod.Get, query, null, ct);
+
+        foreach (var set in doc.Descendants(Ns + "ResourceRecordSet"))
+        {
+            var setName = ((string?)set.Element(Ns + "Name") ?? string.Empty).TrimEnd('.');
+            var setType = (string?)set.Element(Ns + "Type");
+            // Route 53 returns the next set alphabetically when the exact name is absent.
+            if (!string.Equals(setName, name.TrimEnd('.'), StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(setType, "TXT", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var ttl = int.TryParse((string?)set.Element(Ns + "TTL"), out var t) ? t : 60;
+            var values = set.Descendants(Ns + "Value")
+                .Select(v => ((string?)v ?? string.Empty).Trim('"'))
+                .Where(v => v.Length > 0)
+                .ToArray();
+            return values.Length > 0 ? (values, ttl) : null;
+        }
+        return null;
     }
 
     private async Task WaitInSyncAsync(string changeId, CancellationToken ct)
@@ -525,9 +573,13 @@ public sealed class Route53DnsProvider : IDnsProvider, IDisposable
         if (body is not null)
             req.Content = new StringContent(body, Encoding.UTF8, "text/xml");
 
+        // SigV4 signs the query string too, so a request with one (e.g. the rrset
+        // lookup) must pass its canonical form or AWS rejects the signature.
+        var canonicalQuery = CanonicalQuery(path);
+
         // Host is added by HttpClient; the rest come from the signer.
         foreach (var (n, val) in AwsV4Signer.SignedHeaders(
-                     method.Method, uri, string.Empty, payload, _accessKey, _secretKey, Region, Service, DateTime.UtcNow))
+                     method.Method, uri, canonicalQuery, payload, _accessKey, _secretKey, Region, Service, DateTime.UtcNow))
         {
             req.Headers.TryAddWithoutValidation(n, val);
         }
@@ -537,6 +589,30 @@ public sealed class Route53DnsProvider : IDnsProvider, IDisposable
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException($"Route 53 API error (HTTP {(int)resp.StatusCode}): {ExtractError(text)}");
         return string.IsNullOrWhiteSpace(text) ? new XDocument(new XElement("Empty")) : XDocument.Parse(text);
+    }
+
+    /// <summary>
+    /// Builds the SigV4 canonical query string from a request path: parameters
+    /// sorted by name, each key and value URI-encoded. Empty when there's no query.
+    /// </summary>
+    internal static string CanonicalQuery(string path)
+    {
+        var idx = path.IndexOf('?');
+        if (idx < 0 || idx == path.Length - 1) return string.Empty;
+
+        return string.Join("&", path[(idx + 1)..]
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(pair =>
+            {
+                var eq = pair.IndexOf('=');
+                var key = eq < 0 ? pair : pair[..eq];
+                var value = eq < 0 ? string.Empty : pair[(eq + 1)..];
+                // The path already carries escaped values; normalise to SigV4's encoding.
+                return (Key: Uri.EscapeDataString(Uri.UnescapeDataString(key)),
+                        Value: Uri.EscapeDataString(Uri.UnescapeDataString(value)));
+            })
+            .OrderBy(p => p.Key, StringComparer.Ordinal)
+            .Select(p => $"{p.Key}={p.Value}"));
     }
 
     private static string ExtractError(string xml)

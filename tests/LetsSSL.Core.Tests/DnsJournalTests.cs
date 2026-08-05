@@ -165,6 +165,33 @@ public class DnsJournalTests : IDisposable
     }
 
     [Fact]
+    public void A_corrupt_journal_is_preserved_rather_than_silently_discarded()
+    {
+        // Silently treating an unreadable journal as "no records" would hide exactly
+        // the orphans it exists to surface, so the file must be kept for inspection.
+        File.WriteAllText(_paths.DnsJournalFile, "{ this is not valid json");
+
+        var entries = _journal.GetAll();
+
+        Assert.Empty(entries);
+        Assert.False(File.Exists(_paths.DnsJournalFile));
+        var preserved = Directory.GetFiles(_paths.RootDir, "dns-records.json.corrupt-*");
+        Assert.Single(preserved);
+        Assert.Contains("not valid json", File.ReadAllText(preserved[0]));
+    }
+
+    [Fact]
+    public void The_journal_recovers_after_a_corrupt_file_is_quarantined()
+    {
+        File.WriteAllText(_paths.DnsJournalFile, "not json");
+        _journal.GetAll();                       // quarantines the bad file
+
+        _journal.Add(NewEntry());                // writing again must work
+
+        Assert.Single(new DnsRecordJournal(_paths).GetAll());
+    }
+
+    [Fact]
     public void GetOrphans_returns_newest_first()
     {
         var old = NewEntry("_acme-challenge.old.example.com");

@@ -91,7 +91,7 @@ public class DnsProviderTests
         {
             var handler = new RouteHandler(req =>
                 req.Method == HttpMethod.Get ? (HttpStatusCode.OK, ZonesJson) : (HttpStatusCode.OK, CreatedJson));
-            var http = new HttpClient(handler);
+            using var http = new HttpClient(handler);
             using var provider = new CloudflareDnsProvider("token", http,
                 new DnsJournalContext(journal, "cert1"));
 
@@ -125,7 +125,7 @@ public class DnsProviderTests
                 // The delete fails — previously swallowed, now it must stay visible.
                 _ => (HttpStatusCode.Forbidden, "{\"success\":false,\"errors\":[{\"message\":\"no permission\"}]}"),
             });
-            var http = new HttpClient(handler);
+            using var http = new HttpClient(handler);
             using var provider = new CloudflareDnsProvider("token", http,
                 new DnsJournalContext(journal, "cert1"));
 
@@ -153,7 +153,7 @@ public class DnsProviderTests
                 _ when req.Method == HttpMethod.Post => (HttpStatusCode.OK, CreatedJson),
                 _ => (HttpStatusCode.NotFound, "{\"success\":false,\"errors\":[{\"message\":\"not found\"}]}"),
             });
-            var http = new HttpClient(handler);
+            using var http = new HttpClient(handler);
             using var provider = new CloudflareDnsProvider("token", http,
                 new DnsJournalContext(journal, "cert1"));
 
@@ -168,12 +168,105 @@ public class DnsProviderTests
         }
     }
 
+    // ---- Route 53 deletes must match the live record set exactly ----
+
+    /// <summary>Captures request bodies so the emitted change batch can be asserted.</summary>
+    private sealed class CapturingHandler : HttpMessageHandler
+    {
+        private readonly Func<HttpRequestMessage, string> _reply;
+        public readonly List<string> Bodies = new();
+        public CapturingHandler(Func<HttpRequestMessage, string> reply) => _reply = reply;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.Content is not null) Bodies.Add(await request.Content.ReadAsStringAsync(ct));
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(_reply(request)) };
+        }
+    }
+
+    private const string R53Ns = "https://route53.amazonaws.com/doc/2013-04-01/";
+
+    private static string RecordSetXml(params string[] values)
+    {
+        var records = string.Concat(values.Select(v => $"<ResourceRecord><Value>\"{v}\"</Value></ResourceRecord>"));
+        return $"<?xml version=\"1.0\"?><ListResourceRecordSetsResponse xmlns=\"{R53Ns}\">" +
+               "<ResourceRecordSets><ResourceRecordSet>" +
+               "<Name>_acme-challenge.example.com.</Name><Type>TXT</Type><TTL>60</TTL>" +
+               $"<ResourceRecords>{records}</ResourceRecords>" +
+               "</ResourceRecordSet></ResourceRecordSets></ListResourceRecordSetsResponse>";
+    }
+
+    private const string ChangeOkXml =
+        "<?xml version=\"1.0\"?><ChangeResourceRecordSetsResponse xmlns=\"" + R53Ns + "\">" +
+        "<ChangeInfo><Id>/change/C1</Id><Status>PENDING</Status></ChangeInfo></ChangeResourceRecordSetsResponse>";
+
+    [Fact]
+    public async Task Route53_delete_removes_only_our_value_when_others_share_the_name()
+    {
+        // A wildcard and its apex share one _acme-challenge name, so the set holds two
+        // values. Deleting with just ours would not match the live set and be rejected.
+        var handler = new CapturingHandler(req =>
+            req.Method == HttpMethod.Get ? RecordSetXml("ours", "someone-elses") : ChangeOkXml);
+        using var http = new HttpClient(handler);
+        using var provider = new Route53DnsProvider("ak", "sk", "Z1", http);
+
+        await provider.DeleteRecordAsync("Z1", "_acme-challenge.example.com", "ours");
+
+        var change = Assert.Single(handler.Bodies);
+        Assert.Contains("<Action>UPSERT</Action>", change);   // not DELETE — others remain
+        Assert.Contains("someone-elses", change);
+        Assert.DoesNotContain(">\"ours\"<", change);
+    }
+
+    [Fact]
+    public async Task Route53_delete_removes_the_whole_set_when_ours_is_the_only_value()
+    {
+        var handler = new CapturingHandler(req =>
+            req.Method == HttpMethod.Get ? RecordSetXml("ours") : ChangeOkXml);
+        using var http = new HttpClient(handler);
+        using var provider = new Route53DnsProvider("ak", "sk", "Z1", http);
+
+        await provider.DeleteRecordAsync("Z1", "_acme-challenge.example.com", "ours");
+
+        var change = Assert.Single(handler.Bodies);
+        Assert.Contains("<Action>DELETE</Action>", change);
+        Assert.Contains("ours", change);
+        Assert.Contains("<TTL>60</TTL>", change);             // TTL must match the live set
+    }
+
+    [Theory]
+    // No query at all.
+    [InlineData("/2013-04-01/hostedzone", "")]
+    [InlineData("/2013-04-01/hostedzone?", "")]
+    // Sorted by name, and each key/value URI-encoded (SigV4 requirement).
+    [InlineData("/x?type=TXT&maxitems=1", "maxitems=1&type=TXT")]
+    [InlineData("/x?name=_acme-challenge.example.com&type=TXT",
+                "name=_acme-challenge.example.com&type=TXT")]
+    public void Route53_canonical_query_is_sorted_and_encoded(string path, string expected)
+    {
+        // SigV4 signs the query string; getting this wrong makes AWS reject the
+        // signature, which a stubbed HTTP handler would never reveal.
+        Assert.Equal(expected, Route53DnsProvider.CanonicalQuery(path));
+    }
+
+    [Fact]
+    public async Task Route53_delete_is_a_no_op_when_the_value_is_already_gone()
+    {
+        var handler = new CapturingHandler(req =>
+            req.Method == HttpMethod.Get ? RecordSetXml("someone-elses") : ChangeOkXml);
+        using var http = new HttpClient(handler);
+        using var provider = new Route53DnsProvider("ak", "sk", "Z1", http);
+
+        await provider.DeleteRecordAsync("Z1", "_acme-challenge.example.com", "ours");
+
+        Assert.Empty(handler.Bodies);   // nothing submitted; someone else's record untouched
+    }
+
     [Fact]
     public async Task Publishing_without_a_journal_still_works()
     {
         var handler = new RouteHandler(req =>
             req.Method == HttpMethod.Get ? (HttpStatusCode.OK, ZonesJson) : (HttpStatusCode.OK, CreatedJson));
-        var http = new HttpClient(handler);
+        using var http = new HttpClient(handler);
         using var provider = new CloudflareDnsProvider("token", http);   // no journal
 
         await provider.PublishTxtRecordAsync("example.com", "_acme-challenge.example.com", "val");
