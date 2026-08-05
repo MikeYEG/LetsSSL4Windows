@@ -28,6 +28,7 @@ public class CertificateManager
     private readonly DeploymentTaskRunner _deployment;
     private readonly IManualDnsInteraction? _manualDns;
     private readonly NotificationService? _notifications;
+    private readonly DnsRecordJournal? _dnsJournal;
     private readonly ILogger<CertificateManager> _logger;
 
     public CertificateManager(
@@ -38,6 +39,7 @@ public class CertificateManager
         DeploymentTaskRunner deployment,
         IManualDnsInteraction? manualDns = null,
         NotificationService? notifications = null,
+        DnsRecordJournal? dnsJournal = null,
         ILogger<CertificateManager>? logger = null)
     {
         _paths = paths;
@@ -47,6 +49,7 @@ public class CertificateManager
         _deployment = deployment;
         _manualDns = manualDns;
         _notifications = notifications;
+        _dnsJournal = dnsJournal;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<CertificateManager>.Instance;
     }
 
@@ -170,30 +173,46 @@ public class CertificateManager
         return new HttpChallengeHandler(new FileSystemHttpChallengeResponder(webRoot));
     }
 
-    private IDnsProvider BuildDnsProvider(ManagedCertificate config) => config.DnsProvider switch
+    private IDnsProvider BuildDnsProvider(ManagedCertificate config)
     {
-        DnsProviderType.Cloudflare => new CloudflareDnsProvider(
-            SecretProtector.Unprotect(config.DnsCredentialProtected)
-                ?? throw new InvalidOperationException("A Cloudflare API token is required.")),
+        // Every record this provider creates is journaled against the certificate,
+        // so an orphan can be traced back to the credentials needed to remove it.
+        var journal = _dnsJournal is not null ? new DnsJournalContext(_dnsJournal, config.Id) : null;
 
-        DnsProviderType.Route53 => BuildRoute53Provider(config),
+        return config.DnsProvider switch
+        {
+            DnsProviderType.Cloudflare => new CloudflareDnsProvider(
+                SecretProtector.Unprotect(config.DnsCredentialProtected)
+                    ?? throw new InvalidOperationException("A Cloudflare API token is required."),
+                journal: journal, logger: _logger),
 
-        DnsProviderType.Manual => _manualDns is not null
-            ? new ManualDnsProvider(_manualDns)
-            : throw new InvalidOperationException(
-                "Manual DNS validation is interactive-only and cannot run in the renewal agent. " +
-                "Use an automated DNS provider (e.g. Cloudflare) for unattended renewal."),
+            DnsProviderType.Route53 => BuildRoute53Provider(config, journal, _logger),
 
-        _ => throw new NotSupportedException($"Unknown DNS provider: {config.DnsProvider}"),
-    };
+            DnsProviderType.Manual => _manualDns is not null
+                ? new ManualDnsProvider(_manualDns, journal, _logger)
+                : throw new InvalidOperationException(
+                    "Manual DNS validation is interactive-only and cannot run in the renewal agent. " +
+                    "Use an automated DNS provider (e.g. Cloudflare) for unattended renewal."),
 
-    private static Route53DnsProvider BuildRoute53Provider(ManagedCertificate config)
+            _ => throw new NotSupportedException($"Unknown DNS provider: {config.DnsProvider}"),
+        };
+    }
+
+    private static Route53DnsProvider BuildRoute53Provider(
+        ManagedCertificate config, DnsJournalContext? journal, ILogger logger)
+    {
+        var creds = ReadRoute53Credentials(config);
+        return new Route53DnsProvider(creds.AccessKeyId, creds.SecretAccessKey, creds.HostedZoneId,
+            journal: journal, logger: logger);
+    }
+
+    /// <summary>Unprotects and parses a certificate's stored Route 53 credentials.</summary>
+    public static Route53Credentials ReadRoute53Credentials(ManagedCertificate config)
     {
         var json = SecretProtector.Unprotect(config.DnsCredentialProtected)
             ?? throw new InvalidOperationException("Route 53 credentials are required.");
-        var creds = System.Text.Json.JsonSerializer.Deserialize<Route53Credentials>(json)
+        return System.Text.Json.JsonSerializer.Deserialize<Route53Credentials>(json)
             ?? throw new InvalidOperationException("Route 53 credentials could not be read.");
-        return new Route53DnsProvider(creds.AccessKeyId, creds.SecretAccessKey, creds.HostedZoneId);
     }
 
     /// <summary>The IIS sites a certificate should bind to (the list, or the single legacy name).</summary>

@@ -28,6 +28,20 @@ public partial class SettingsWindow : Window
         Close();
     }
 
+    /// <summary>Forgets an outstanding DNS record the user has already deleted themselves.</summary>
+    private void OnDismissDnsRecord(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button { Tag: LetsSSL.Core.Dns.DnsJournalEntry entry }) return;
+
+        var confirm = MessageBox.Show(
+            $"Dismiss the record \"{entry.RecordName}\"?\n\n" +
+            "This only removes it from this list — it does not delete anything from your DNS zone. " +
+            "Use it once you've confirmed the record is gone.",
+            "Dismiss DNS record", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm == MessageBoxResult.Yes)
+            _vm.DismissDnsRecord(entry);
+    }
+
     private void OnBackup(object sender, RoutedEventArgs e)
     {
         var dialog = new SaveFileDialog

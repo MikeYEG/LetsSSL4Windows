@@ -61,6 +61,12 @@ $Public = @(
     'Get-AriCertIdFromParts'
     'Get-AcmeRenewalInfo'
     'Update-RenewalInfo'
+    # DNS-01 record journal (outstanding challenge records)
+    'Get-DnsRecordJournal'
+    'Add-DnsRecordJournalEntry'
+    'Remove-DnsRecordJournalEntry'
+    'Test-DnsChallengeCleanup'
+    'Show-OutstandingDnsRecord'
     # IIS
     'Get-IisSites'
     'Get-IisSitePhysicalPath'

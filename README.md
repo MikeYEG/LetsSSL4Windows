@@ -184,6 +184,24 @@ instead of mid-issuance.
 Secrets (tokens/keys) are stored encrypted with Windows DPAPI. Azure DNS and
 Google Cloud DNS are planned next, using the same pluggable provider interface.
 
+### Tracking the TXT records that get created
+
+Every `_acme-challenge` TXT record the app creates is **logged** (to the activity
+log and the Windows Event Log) and **recorded to `dns-records.json`** in the data
+store *before* it is published — then removed from that file only once deletion is
+confirmed. So the record survives a crash, a service restart, or a failed cleanup.
+
+Records are normally deleted immediately after validation and the file stays
+empty. Anything left in it is a record that may still exist in your DNS zone, and
+it's surfaced in **Settings → Outstanding DNS-01 records** with when it was
+created and why cleanup failed. From there you can **Retry removal** (deletes them using
+the same credentials that created them) or **Dismiss** a record you've already
+deleted yourself. This matters because stale TXT records pile up at the *same*
+record name over successive renewals and can eventually interfere with validation.
+
+Cleanup failures are never silent — they're logged as warnings naming the exact
+record, so a record left behind is always visible somewhere.
+
 ## Deployment tasks
 
 Run post-issuance tasks (configured per certificate in the wizard or in

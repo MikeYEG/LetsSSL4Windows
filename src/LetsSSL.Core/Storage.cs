@@ -21,6 +21,8 @@ public class AppPaths
     public string SettingsFile => Path.Combine(RootDir, "appsettings.json");
     public string CertificatesFile => Path.Combine(RootDir, "certificates.json");
     public string RenewalStatusFile => Path.Combine(RootDir, "lastrun.json");
+    /// <summary>DNS-01 TXT records created but not yet confirmed removed.</summary>
+    public string DnsJournalFile => Path.Combine(RootDir, "dns-records.json");
 
     public AppPaths(string? rootDir = null)
     {

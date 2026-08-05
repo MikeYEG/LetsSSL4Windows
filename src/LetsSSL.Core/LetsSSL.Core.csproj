@@ -19,6 +19,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Lets the test project exercise internal helpers (e.g. SigV4 canonical
+         query building) without widening the public API surface. -->
+    <InternalsVisibleTo Include="LetsSSL.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- ACME (RFC 8555) client — MIT licensed -->
     <PackageReference Include="Certes" Version="3.0.4" />
     <!-- IIS site / binding management — Microsoft, redistributable -->
