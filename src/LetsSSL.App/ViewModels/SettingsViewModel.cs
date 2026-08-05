@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Windows;
 using LetsSSL.App.Services;
 using LetsSSL.Core;
+using LetsSSL.Core.Dns;
 using LetsSSL.Core.Models;
 using LetsSSL.Core.Notifications;
 using LetsSSL.Core.Storage;
@@ -15,18 +16,26 @@ public class SettingsViewModel : ViewModelBase
     private readonly SettingsRepository _repository;
     private readonly UpdateChecker _updateChecker;
     private readonly AppPaths _paths;
+    private readonly DnsCleanupService? _dnsCleanup;
     private UpdateInfo? _updateInfo;
 
-    public SettingsViewModel(SettingsRepository repository, UpdateChecker updateChecker, AppPaths paths)
+    public SettingsViewModel(
+        SettingsRepository repository,
+        UpdateChecker updateChecker,
+        AppPaths paths,
+        DnsCleanupService? dnsCleanup = null)
     {
         _repository = repository;
         _updateChecker = updateChecker;
         _paths = paths;
+        _dnsCleanup = dnsCleanup;
         CheckForUpdatesCommand = new AsyncRelayCommand(_ => CheckForUpdatesAsync());
         DownloadInstallCommand = new AsyncRelayCommand(_ => DownloadInstallAsync(), _ => UpdateFound);
         TestNotificationsCommand = new AsyncRelayCommand(_ => TestNotificationsAsync());
+        RetryDnsCleanupCommand = new AsyncRelayCommand(_ => RetryDnsCleanupAsync(), _ => HasOrphanedDnsRecords);
 
         LoadFromSettings();
+        RefreshDnsRecords();
     }
 
     /// <summary>Loads every field from the persisted settings (also used after a restore).</summary>
@@ -205,6 +214,65 @@ public class SettingsViewModel : ViewModelBase
         FromAddress = string.IsNullOrWhiteSpace(FromAddress) ? null : FromAddress.Trim(),
         ToAddress = string.IsNullOrWhiteSpace(ToAddress) ? null : ToAddress.Trim(),
     };
+
+    // ---- Outstanding DNS-01 records ----
+
+    /// <summary>
+    /// TXT records this app created for DNS-01 validation that haven't been
+    /// confirmed removed — normally empty. Anything listed here is still sitting
+    /// in the DNS zone (a failed cleanup, or a run that was interrupted).
+    /// </summary>
+    public System.Collections.ObjectModel.ObservableCollection<DnsJournalEntry> DnsRecords { get; } = new();
+
+    public bool HasOrphanedDnsRecords => DnsRecords.Count > 0;
+
+    private string _dnsCleanupStatus = string.Empty;
+    public string DnsCleanupStatus { get => _dnsCleanupStatus; private set => SetField(ref _dnsCleanupStatus, value); }
+
+    public AsyncRelayCommand RetryDnsCleanupCommand { get; }
+
+    /// <summary>Reloads the outstanding-record list from the journal.</summary>
+    public void RefreshDnsRecords()
+    {
+        DnsRecords.Clear();
+        foreach (var entry in _dnsCleanup?.GetOrphans() ?? Array.Empty<DnsJournalEntry>())
+            DnsRecords.Add(entry);
+
+        OnPropertyChanged(nameof(HasOrphanedDnsRecords));
+        // AsyncRelayCommand re-queries via CommandManager, so nudge it to re-evaluate.
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+        DnsCleanupStatus = DnsRecords.Count == 0
+            ? "No outstanding DNS-01 records — nothing left behind."
+            : $"{DnsRecords.Count} DNS-01 TXT record(s) may still exist in your DNS zone.";
+    }
+
+    /// <summary>Retries deletion of every outstanding record.</summary>
+    private async Task RetryDnsCleanupAsync()
+    {
+        if (_dnsCleanup is null) return;
+        DnsCleanupStatus = "Removing outstanding DNS records…";
+        try
+        {
+            var outcomes = await _dnsCleanup.RetryAllAsync();
+            var removed = outcomes.Count(o => o.Succeeded);
+            var failed = outcomes.Count - removed;
+            RefreshDnsRecords();
+            DnsCleanupStatus = failed == 0
+                ? $"Removed {removed} DNS record(s)."
+                : $"Removed {removed}; {failed} still need attention — see the list.";
+        }
+        catch (Exception ex)
+        {
+            DnsCleanupStatus = "Cleanup failed: " + ex.Message;
+        }
+    }
+
+    /// <summary>Forgets a record the user has removed from their DNS zone by hand.</summary>
+    public void DismissDnsRecord(DnsJournalEntry entry)
+    {
+        _dnsCleanup?.Dismiss(entry.Id);
+        RefreshDnsRecords();
+    }
 
     // ---- Backup / restore ----
 

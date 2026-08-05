@@ -184,6 +184,60 @@
                                    Visibility="{Binding BackupStatus, Converter={StaticResource NonEmptyToVis}}" />
                     </StackPanel>
                 </Border>
+
+                <!-- Outstanding DNS-01 records -->
+                <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}"
+                        BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,18,0,0">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Outstanding DNS-01 records" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource InfoGlyph}"
+                                       ToolTip="TXT records created for DNS-01 validation are normally deleted straight after validation. Anything listed here was not confirmed removed — because cleanup failed or a run was interrupted — and may still exist in your DNS zone. Retry removes them; Dismiss just forgets a record you already deleted yourself." />
+                        </StackPanel>
+                        <TextBlock Text="{Binding DnsCleanupStatus}" Foreground="{StaticResource TextMuted}"
+                                   TextWrapping="Wrap" Margin="0,4,0,0" FontSize="12" />
+
+                        <ItemsControl ItemsSource="{Binding DnsRecords}" Margin="0,10,0,0"
+                                      Visibility="{Binding HasOrphanedDnsRecords, Converter={StaticResource BoolToVis}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1" Padding="0,6">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="{Binding RecordName}" FontFamily="Consolas" FontSize="12"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Foreground="{StaticResource TextMuted}" FontSize="11"
+                                                           TextWrapping="Wrap">
+                                                    <Run Text="{Binding Provider, Mode=OneWay}" />
+                                                    <Run Text="·" />
+                                                    <Run Text="{Binding Domain, Mode=OneWay}" />
+                                                    <Run Text="· created" />
+                                                    <Run Text="{Binding CreatedUtc, StringFormat='yyyy-MM-dd HH:mm', Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding LastCleanupError}" FontSize="11"
+                                                           Foreground="{StaticResource Danger}" TextWrapping="Wrap"
+                                                           Visibility="{Binding LastCleanupError, Converter={StaticResource NonEmptyToVis}}" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="Dismiss" Style="{StaticResource SecondaryButton}"
+                                                    Padding="8,2" FontSize="11" VerticalAlignment="Top"
+                                                    Click="OnDismissDnsRecord" Tag="{Binding}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0"
+                                    Visibility="{Binding HasOrphanedDnsRecords, Converter={StaticResource BoolToVis}}">
+                            <Button Content="Retry removal" Style="{StaticResource SecondaryButton}" Padding="10,4"
+                                    Command="{Binding RetryDnsCleanupCommand}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
 

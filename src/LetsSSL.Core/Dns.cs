@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
+using LetsSSL.Core.Models;
+using Microsoft.Extensions.Logging;
 
 namespace LetsSSL.Core.Dns;
 
@@ -97,13 +99,32 @@ public interface IManualDnsInteraction
 public class ManualDnsProvider : IDnsProvider
 {
     private readonly IManualDnsInteraction _interaction;
+    private readonly DnsJournalContext? _journal;
+    private readonly ILogger _logger;
     private readonly List<DnsTxtRecord> _records = new();
+    private readonly List<DnsJournalEntry> _entries = new();
 
-    public ManualDnsProvider(IManualDnsInteraction interaction) => _interaction = interaction;
+    public ManualDnsProvider(
+        IManualDnsInteraction interaction,
+        DnsJournalContext? journal = null,
+        ILogger? logger = null)
+    {
+        _interaction = interaction;
+        _journal = journal;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+    }
 
     public Task PublishTxtRecordAsync(string domain, string recordName, string value, CancellationToken ct = default)
     {
         _records.Add(new DnsTxtRecord(domain, recordName, value));
+        if (_journal is not null)
+        {
+            var entry = _journal.NewEntry(DnsProviderType.Manual, domain, recordName, value);
+            _journal.Journal.Add(entry);
+            _entries.Add(entry);
+        }
+        _logger.LogInformation("DNS-01 TXT record {Record} = {Value} for {Domain} must be created manually.",
+            recordName, value, domain);
         return Task.CompletedTask;
     }
 
@@ -116,8 +137,15 @@ public class ManualDnsProvider : IDnsProvider
     public async Task RemoveTxtRecordsAsync(CancellationToken ct = default)
     {
         if (_records.Count > 0)
+        {
             await _interaction.PromptRemoveAsync(_records, ct);
+            // The user was told to delete them; take them at their word and clear the
+            // journal, otherwise every manual issuance would leave a phantom orphan.
+            foreach (var entry in _entries) _journal!.Journal.Remove(entry.Id);
+            _logger.LogInformation("Prompted removal of {Count} manual DNS-01 TXT record(s).", _records.Count);
+        }
         _records.Clear();
+        _entries.Clear();
     }
 }
 
@@ -130,12 +158,21 @@ public sealed class CloudflareDnsProvider : IDnsProvider, IDisposable
     private const string ApiBase = "https://api.cloudflare.com/client/v4";
 
     private readonly HttpClient _http;
-    private readonly List<(string ZoneId, string RecordId)> _created = new();
+    private readonly DnsJournalContext? _journal;
+    private readonly ILogger _logger;
+    // journal entry id alongside the provider handles, so cleanup can clear it
+    private readonly List<(string ZoneId, string RecordId, string? EntryId)> _created = new();
 
-    public CloudflareDnsProvider(string apiToken, HttpClient? httpClient = null)
+    public CloudflareDnsProvider(
+        string apiToken,
+        HttpClient? httpClient = null,
+        DnsJournalContext? journal = null,
+        ILogger? logger = null)
     {
         _http = httpClient ?? new HttpClient();
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiToken);
+        _journal = journal;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     }
 
     /// <summary>Validates the API token via Cloudflare's token-verify endpoint.</summary>
@@ -163,21 +200,69 @@ public sealed class CloudflareDnsProvider : IDnsProvider, IDisposable
     public async Task PublishTxtRecordAsync(string domain, string recordName, string value, CancellationToken ct = default)
     {
         var zoneId = await FindZoneIdAsync(recordName, ct);
-        var payload = new { type = "TXT", name = recordName, content = value, ttl = 120 };
-        using var resp = await _http.PostAsJsonAsync($"{ApiBase}/zones/{zoneId}/dns_records", payload, ct);
-        var doc = await ReadResultAsync(resp, ct);
-        var recordId = doc.RootElement.GetProperty("result").GetProperty("id").GetString()!;
-        _created.Add((zoneId, recordId));
+
+        // Journal the record BEFORE creating it: if the process dies mid-create, or
+        // the API call times out after Cloudflare committed the change, an entry we
+        // can still find beats a record nobody knows about. A create that definitely
+        // failed leaves a dismissible entry, which is the safer side to err on.
+        var entry = _journal?.NewEntry(DnsProviderType.Cloudflare, domain, recordName, value);
+        if (entry is not null) _journal!.Journal.Add(entry);
+
+        try
+        {
+            var payload = new { type = "TXT", name = recordName, content = value, ttl = 120 };
+            using var resp = await _http.PostAsJsonAsync($"{ApiBase}/zones/{zoneId}/dns_records", payload, ct);
+            var doc = await ReadResultAsync(resp, ct);
+            var recordId = doc.RootElement.GetProperty("result").GetProperty("id").GetString()!;
+            _created.Add((zoneId, recordId, entry?.Id));
+            if (entry is not null) _journal!.Journal.SetProviderRef(entry.Id, $"{zoneId}/{recordId}");
+
+            _logger.LogInformation(
+                "Created DNS-01 TXT record {Record} = {Value} for {Domain} (Cloudflare zone {Zone}, record {RecordId}).",
+                recordName, value, domain, zoneId, recordId);
+        }
+        catch (Exception ex)
+        {
+            if (entry is not null)
+                _journal!.Journal.SetCleanupError(entry.Id,
+                    $"Creating this record failed ({ex.Message}). It may not exist — verify in Cloudflare, then dismiss it.");
+            _logger.LogError(ex, "Failed to create DNS-01 TXT record {Record} for {Domain} (Cloudflare zone {Zone}).",
+                recordName, domain, zoneId);
+            throw;
+        }
     }
 
     public async Task RemoveTxtRecordsAsync(CancellationToken ct = default)
     {
-        foreach (var (zoneId, recordId) in _created)
+        foreach (var (zoneId, recordId, entryId) in _created)
         {
-            try { using var _ = await _http.DeleteAsync($"{ApiBase}/zones/{zoneId}/dns_records/{recordId}", ct); }
-            catch { /* best-effort cleanup */ }
+            try
+            {
+                await DeleteRecordAsync(zoneId, recordId, ct);
+                if (entryId is not null) _journal!.Journal.Remove(entryId);
+                _logger.LogInformation("Removed DNS-01 TXT record {RecordId} (Cloudflare zone {Zone}).", recordId, zoneId);
+            }
+            catch (Exception ex)
+            {
+                // Never silent: a record left in the zone must be visible somewhere.
+                // The journal entry stays behind so it can be listed and retried.
+                if (entryId is not null) _journal!.Journal.SetCleanupError(entryId, ex.Message);
+                _logger.LogWarning(
+                    "Could not remove DNS-01 TXT record {RecordId} in Cloudflare zone {Zone}: {Error}. " +
+                    "The record may still exist and should be deleted manually.",
+                    recordId, zoneId, ex.Message);
+            }
         }
         _created.Clear();
+    }
+
+    /// <summary>Deletes a single TXT record by its Cloudflare zone and record id.</summary>
+    public async Task DeleteRecordAsync(string zoneId, string recordId, CancellationToken ct = default)
+    {
+        using var resp = await _http.DeleteAsync($"{ApiBase}/zones/{zoneId}/dns_records/{recordId}", ct);
+        // A record that is already gone counts as cleaned up.
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return;
+        using var _ = await ReadResultAsync(resp, ct);
     }
 
     /// <summary>Finds the Cloudflare zone whose name is the longest suffix of the record name.</summary>
@@ -251,16 +336,29 @@ public sealed class Route53DnsProvider : IDnsProvider, IDisposable
     private readonly string _secretKey;
     private readonly string? _hostedZoneId;
 
+    private readonly DnsJournalContext? _journal;
+    private readonly ILogger _logger;
+
     // record name -> the TXT values that must exist there (wildcard + apex share one name)
     private readonly Dictionary<string, HashSet<string>> _pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<(string ZoneId, string Name, string[] Values)> _applied = new();
+    // journal entries created in PublishTxtRecordAsync, keyed by record name
+    private readonly Dictionary<string, List<DnsJournalEntry>> _entries = new(StringComparer.OrdinalIgnoreCase);
 
-    public Route53DnsProvider(string accessKeyId, string secretAccessKey, string? hostedZoneId = null, HttpClient? httpClient = null)
+    public Route53DnsProvider(
+        string accessKeyId,
+        string secretAccessKey,
+        string? hostedZoneId = null,
+        HttpClient? httpClient = null,
+        DnsJournalContext? journal = null,
+        ILogger? logger = null)
     {
         _accessKey = accessKeyId;
         _secretKey = secretAccessKey;
         _hostedZoneId = string.IsNullOrWhiteSpace(hostedZoneId) ? null : hostedZoneId.Trim();
         _http = httpClient ?? new HttpClient();
+        _journal = journal;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     }
 
     /// <summary>Validates the AWS credentials by listing hosted zones (read-only).</summary>
@@ -288,6 +386,16 @@ public sealed class Route53DnsProvider : IDnsProvider, IDisposable
             _pending[name] = set;
         }
         set.Add(value);
+
+        // Route 53 defers the actual change to ConfirmPublishedAsync, but journal the
+        // intent now so nothing is created without a durable trace of it.
+        if (_journal is not null)
+        {
+            var entry = _journal.NewEntry(DnsProviderType.Route53, domain, name, value);
+            _journal.Journal.Add(entry);
+            if (!_entries.TryGetValue(name, out var list)) _entries[name] = list = new List<DnsJournalEntry>();
+            list.Add(entry);
+        }
         return Task.CompletedTask;
     }
 
@@ -298,22 +406,67 @@ public sealed class Route53DnsProvider : IDnsProvider, IDisposable
         {
             var zoneId = _hostedZoneId ?? await FindZoneIdAsync(name, ct);
             var vals = values.ToArray();
-            var changeId = await ChangeAsync(zoneId, name, vals, "UPSERT", ct);
-            _applied.Add((zoneId, name, vals));
-            if (!string.IsNullOrEmpty(changeId)) changeIds.Add(changeId!);
+            try
+            {
+                var changeId = await ChangeAsync(zoneId, name, vals, "UPSERT", ct);
+                _applied.Add((zoneId, name, vals));
+                if (!string.IsNullOrEmpty(changeId)) changeIds.Add(changeId!);
+
+                foreach (var entry in EntriesFor(name)) _journal!.Journal.SetProviderRef(entry.Id, zoneId);
+                _logger.LogInformation(
+                    "Created DNS-01 TXT record {Record} with {Count} value(s) (Route 53 zone {Zone}).",
+                    name, vals.Length, zoneId);
+            }
+            catch (Exception ex)
+            {
+                foreach (var entry in EntriesFor(name))
+                    _journal!.Journal.SetCleanupError(entry.Id,
+                        $"Creating this record failed ({ex.Message}). It may not exist — verify in Route 53, then dismiss it.");
+                _logger.LogError(ex, "Failed to create DNS-01 TXT record {Record} (Route 53 zone {Zone}).", name, zoneId);
+                throw;
+            }
         }
         foreach (var id in changeIds) await WaitInSyncAsync(id, ct);
     }
+
+    private IEnumerable<DnsJournalEntry> EntriesFor(string name) =>
+        _journal is not null && _entries.TryGetValue(name, out var list) ? list : Enumerable.Empty<DnsJournalEntry>();
 
     public async Task RemoveTxtRecordsAsync(CancellationToken ct = default)
     {
         foreach (var (zoneId, name, values) in _applied)
         {
-            try { await ChangeAsync(zoneId, name, values, "DELETE", ct); }
-            catch { /* best-effort cleanup */ }
+            try
+            {
+                await ChangeAsync(zoneId, name, values, "DELETE", ct);
+                foreach (var entry in EntriesFor(name)) _journal!.Journal.Remove(entry.Id);
+                _logger.LogInformation("Removed DNS-01 TXT record {Record} (Route 53 zone {Zone}).", name, zoneId);
+            }
+            catch (Exception ex)
+            {
+                // Never silent: leave the journal entry behind so the orphaned record
+                // is listed and can be retried or removed by hand.
+                foreach (var entry in EntriesFor(name)) _journal!.Journal.SetCleanupError(entry.Id, ex.Message);
+                _logger.LogWarning(
+                    "Could not remove DNS-01 TXT record {Record} in Route 53 zone {Zone}: {Error}. " +
+                    "The record may still exist and should be deleted manually.",
+                    name, zoneId, ex.Message);
+            }
         }
         _applied.Clear();
         _pending.Clear();
+        _entries.Clear();
+    }
+
+    /// <summary>
+    /// Deletes a single journaled TXT value. Route 53 deletes whole record sets, so
+    /// the value is passed explicitly to rebuild the set being removed.
+    /// </summary>
+    public async Task DeleteRecordAsync(string? zoneId, string recordName, string value, CancellationToken ct = default)
+    {
+        var name = recordName.TrimEnd('.');
+        var zone = zoneId ?? _hostedZoneId ?? await FindZoneIdAsync(name, ct);
+        await ChangeAsync(zone, name, new[] { value }, "DELETE", ct);
     }
 
     /// <summary>Finds the hosted zone whose name is the longest suffix of the record name.</summary>

@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using LetsSSL.Core.Acme;
 using LetsSSL.Core.Deployment;
 using LetsSSL.Core.Dns;
+using LetsSSL.Core.Models;
 using LetsSSL.Core.Notifications;
 using LetsSSL.Core.Renewal;
 using LetsSSL.Core.Storage;
@@ -27,6 +28,8 @@ public class LetsSslServices
     public RenewalStatusStore RenewalStatusStore { get; }
     public UpdateChecker Updates { get; }
     public RenewalInfoClient RenewalInfo { get; }
+    public DnsRecordJournal DnsJournal { get; }
+    public DnsCleanupService DnsCleanup { get; }
     public CertificateManager Manager { get; }
     public RenewalService Renewal { get; }
 
@@ -52,9 +55,33 @@ public class LetsSslServices
         RenewalStatusStore = new RenewalStatusStore(Paths);
         Updates = new UpdateChecker();
         RenewalInfo = new RenewalInfoClient(logger: lf.CreateLogger<RenewalInfoClient>());
+        DnsJournal = new DnsRecordJournal(Paths);
+        DnsCleanup = new DnsCleanupService(DnsJournal, ResolveDnsCredentials, lf.CreateLogger<DnsCleanupService>());
         Manager = new CertificateManager(Paths, Certificates, Acme, Store, Deployment, manualDns,
-            Notifications, lf.CreateLogger<CertificateManager>());
+            Notifications, DnsJournal, lf.CreateLogger<CertificateManager>());
         Renewal = new RenewalService(Certificates, Manager, RenewalStatusStore, Store, RenewalInfo,
             lf.CreateLogger<RenewalService>());
+    }
+
+    /// <summary>
+    /// Resolves the DNS credentials for a journaled record's certificate, so an
+    /// orphaned record can be deleted with the same credentials that created it.
+    /// Returns null when the certificate or its stored credential is gone.
+    /// </summary>
+    private ManagedCertificateCredentials? ResolveDnsCredentials(string certificateId)
+    {
+        var cert = Certificates.GetAll().FirstOrDefault(c => c.Id == certificateId);
+        if (cert is null || string.IsNullOrEmpty(cert.DnsCredentialProtected)) return null;
+
+        return cert.DnsProvider switch
+        {
+            DnsProviderType.Cloudflare =>
+                SecretProtector.Unprotect(cert.DnsCredentialProtected) is { } token
+                    ? new ManagedCertificateCredentials(token)
+                    : null,
+            DnsProviderType.Route53 =>
+                new ManagedCertificateCredentials(string.Empty, CertificateManager.ReadRoute53Credentials(cert)),
+            _ => null,
+        };
     }
 }
